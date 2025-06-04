@@ -642,6 +642,39 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
     # Entry- und TP-Zonen werden nicht ausgegeben
     return direction, sl, tp, entry
 
+# === Auswertung der vorhergesagten Wellenstruktur ===
+def evaluate_wave_structure(df, label_col="wave_pred"):
+    """Prüfe Reihenfolge und Start-/Endpunkte der vorhergesagten Wellen."""
+    if label_col not in df.columns:
+        print(red("Keine Vorhersagen zur Auswertung gefunden."))
+        return False
+
+    segments = []
+    current = df[label_col].iloc[0]
+    start = 0
+    for i in range(1, len(df)):
+        if df[label_col].iloc[i] != current:
+            segments.append((current, start, i - 1))
+            current = df[label_col].iloc[i]
+            start = i
+    segments.append((current, start, len(df) - 1))
+
+    table = [(lbl, s, e) for lbl, s, e in segments]
+    print(bold("\nWave Segments (Prediction):"))
+    print(tabulate(table, headers=["Wave", "Start", "End"]))
+
+    order = ["1", "2", "3", "4", "5", "A", "B", "C"]
+    last_idx = -1
+    for lbl, s, e in segments:
+        if lbl in order:
+            idx = order.index(lbl)
+            if idx < last_idx:
+                print(red(f"Ungültige Reihenfolge bei Welle {lbl} (Start {s})"))
+                return False
+            last_idx = idx
+    print(green("Wellenreihenfolge scheint konsistent."))
+    return True
+
 # === Hauptfunktion für Analyse & Grafik ===
 def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
     df_1h = fetch_bitget_ohlcv_auto(symbol, interval, target_len=livedata_len, page_limit=1000)
@@ -749,6 +782,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     if direction is None:
         print(red("Trade-Setup konnte nicht erstellt werden."))
 
+    evaluate_wave_structure(df_features)
 
 
     # Statistik- und Feature-Logs entfernt
