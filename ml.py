@@ -583,7 +583,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
 def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
     df_1h = fetch_bitget_ohlcv_auto(symbol, interval, target_len=livedata_len, page_limit=1000)
     df_4h = fetch_bitget_ohlcv_auto(symbol, "4H", target_len=800, page_limit=1000)
-    print(bold(f"\n==== BITGET DATA ===="))
+    print(bold("\n==== BITGET DATA ===="))
     print(f"Symbol: {symbol} | Intervall: {interval} | Bars: {len(df_1h)} (1H) / {len(df_4h)} (4H)")
     print(f"Letzter Timestamp: {df_1h['timestamp'].iloc[-1]}")
     last_complete_close = df_1h["close"].iloc[-2]
@@ -606,7 +606,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             alt_idx = valid_indices[np.argmax(valid_probs)]
             alt_wave = classes[alt_idx]
             alt_prob = proba_row[alt_idx]
-            print(yellow(f"\nAktuelle erkannte Welle: Noise/Invalid/X"))
+            print(yellow("\nAktuelle erkannte Welle: Noise/Invalid/X"))
             print(yellow(f"Alternativer Vorschlag (höchste ML-Prob.): {alt_wave} ({alt_prob*100:.1f}%) → {LABEL_MAP.get(alt_wave,alt_wave)}"))
             current_wave = alt_wave
             print(green(f"Aktuelle erkannte Welle (endgültig): {current_wave} ({alt_prob*100:.1f}%) - {LABEL_MAP.get(current_wave,current_wave)}"))
@@ -637,7 +637,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     next_wave = get_next_wave(current_wave)
     next_target = elliott_target(df_features, next_wave, last_complete_close) if next_wave else None
 
-    print(bold(f"\n==== ZIELPROJEKTIONEN ===="))
+    print(bold("\n==== ZIELPROJEKTIONEN ===="))
     print(f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)})")
     print(f"Zielprojektion: {target:.2f}")
     if next_wave and next_target:
@@ -655,7 +655,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     # === Trade-Setup Output ===
     direction, sl = suggest_trade(df_features, current_wave, target, last_complete_close, entry_zone, tp_zone)
 
-    print(bold(f"\n==== MARKTSTATISTIK ===="))
+    print(bold("\n==== MARKTSTATISTIK ===="))
     print(f"Letzter Close: {last_complete_close:.2f}")
     print(f"Volatilität (ATR): {df_features['atr'].iloc[-1]:.4f}")
     print(f"RSI: {df_features['rsi'].iloc[-1]:.2f}")
