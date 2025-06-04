@@ -688,18 +688,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     # === Trade-Setup Output ===
     direction, sl = suggest_trade(df_features, current_wave, target, last_complete_close, entry_zone, tp_zone)
 
-    print(bold("\n==== MARKTSTATISTIK ===="))
-    print(f"Letzter Close: {last_complete_close:.2f}")
-    print(f"Volatilität (ATR): {df_features['atr'].iloc[-1]:.4f}")
-    print(f"RSI: {df_features['rsi'].iloc[-1]:.2f}")
-    print(f"MACD: {df_features['macd'].iloc[-1]:.4f}")
-    print(f"Stoch K: {df_features['stoch_k'].iloc[-1]:.2f}")
-    print(f"CMF: {df_features['cmf'].iloc[-1]:.4f}")
-
-    print(bold("\n==== WICHTIGSTE FEATURES (aktuelle Kerze) ===="))
-    top_feats = importance.sort_values(ascending=False).head(8)
-    for feat in top_feats.index:
-        print(f"{feat}: {df_features[feat].iloc[-1]:.4f}")
+    # Statistik- und Feature-Logs entfernt
 
     # === PRO-Level Grafik ===
     plt.figure(figsize=(17, 8))
