@@ -691,6 +691,14 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     else:
         next_target = None
         next_wave_start = None
+    next_next_wave = get_next_wave(next_wave) if next_wave else None
+    if next_next_wave:
+        next_next_target, next_next_wave_start, _ = elliott_target(
+            df_features, next_next_wave, last_complete_close
+        )
+    else:
+        next_next_target = None
+        next_next_wave_start = None
 
     print(bold("\n==== ZIELPROJEKTIONEN ===="))
     print(
@@ -699,6 +707,10 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     if next_wave and next_target:
         print(
             f"Nächste erwartete Welle: {next_wave} ({LABEL_MAP.get(next_wave,next_wave)}) | Start: {next_wave_start:.4f} | Ziel: {next_target:.4f}"
+        )
+    if next_next_wave and next_next_target:
+        print(
+            f"Darauffolgende erwartete Welle: {next_next_wave} ({LABEL_MAP.get(next_next_wave,next_next_wave)}) | Start: {next_next_wave_start:.4f} | Ziel: {next_next_target:.4f}"
         )
 
     # === Breakout Zone (letzte Patternrange) ===
@@ -717,20 +729,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         df_features, trade_wave, trade_target, last_complete_close, entry_zone, tp_zone
     )
 
-    table = [
-        ["Wave Start", f"{wave_start_price:.4f}"],
-        ["Next Wave Start", f"{next_wave_start:.4f}" if next_wave_start else "n/a"],
-        ["Last Close", f"{last_wave_close:.4f}"],
-        ["Breakout Low", f"{breakout_zone[0]:.4f}" if breakout_zone else "n/a"],
-        ["Breakout High", f"{breakout_zone[1]:.4f}" if breakout_zone else "n/a"],
-        ["Target", f"{target:.4f}" if target is not None else "n/a"],
-        ["Next Target", f"{next_target:.4f}" if next_target else "n/a"],
-        ["Entry", f"{entry:.4f}"],
-        ["SL", f"{sl:.4f}"],
-        ["TP", f"{tp:.4f}"],
-    ]
 
-    print(tabulate(table, headers=["Metric", "Value"], tablefmt="grid"))
 
     # Statistik- und Feature-Logs entfernt
 
