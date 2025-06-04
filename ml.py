@@ -7,6 +7,7 @@ from sklearn.model_selection import train_test_split, GridSearchCV
 from scipy.stats import zscore
 from tabulate import tabulate
 import os
+import argparse
 import joblib
 
 # === Parameter ===
@@ -15,8 +16,8 @@ LIVEDATA_LEN = 1000
 TRAIN_N = 1000
 PUFFER = 0.02
 
-MODEL_PATH = "/content/drive/MyDrive/elliott_model.joblib"
-DATASET_PATH = "/content/drive/MyDrive/elliott_dataset.joblib"
+MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
+DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
 
 FEATURES_BASE = [
     "returns","range","body","ma_diff","vol_ratio","fibo_level",
@@ -514,6 +515,14 @@ def pattern_target(df_features, current_pattern, last_complete_close):
     breakout_size = high - low
     return close_last + factor * breakout_size
 
+def _latest_segment_indices(df, wave_label):
+    """Return indices of the most recent contiguous segment for a wave."""
+    idxs = df[df["wave_pred"] == wave_label].index.to_numpy()
+    if len(idxs) == 0:
+        return np.array([], dtype=int)
+    splits = np.split(idxs, np.where(np.diff(idxs) != 1)[0] + 1)
+    return splits[-1]
+
 def get_next_wave(current_wave):
     if current_wave in SPECIALPATTERN_NEXTWAVE:
         return SPECIALPATTERN_NEXTWAVE[current_wave]
@@ -528,10 +537,14 @@ def get_next_wave(current_wave):
         return None
 
 def elliott_target(df_features, current_wave, last_complete_close):
-    idx = lambda wave: df_features[df_features["wave_pred"] == wave].index
+    idx = lambda wave: _latest_segment_indices(df_features, wave)
     start_idx = idx(current_wave)
-    wave_start_price = df_features["close"].iloc[start_idx[0]] if len(start_idx) > 0 else last_complete_close
-    last_wave_close = df_features["close"].iloc[start_idx[-1]] if len(start_idx) > 0 else last_complete_close
+    wave_start_price = (
+        df_features["close"].iloc[start_idx[0]] if len(start_idx) > 0 else last_complete_close
+    )
+    last_wave_close = (
+        df_features["close"].iloc[start_idx[-1]] if len(start_idx) > 0 else last_complete_close
+    )
 
     if str(current_wave) in PATTERN_PROJ_FACTORS:
         target = pattern_target(df_features, str(current_wave), last_complete_close)
@@ -609,7 +622,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
     entry = last_close
     if target is None:
         print(red("Kein gültiges Kursziel berechnet."))
-        return None, None
+        return None, None, None, None
 
     if target > entry:
         direction = "LONG"
@@ -733,6 +746,8 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     direction, sl, tp, entry = suggest_trade(
         df_features, trade_wave, trade_target, last_complete_close, entry_zone, tp_zone
     )
+    if direction is None:
+        print(red("Trade-Setup konnte nicht erstellt werden."))
 
 
 
@@ -769,6 +784,15 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
 
 # === Main ===
 def main():
+    global MODEL_PATH, DATASET_PATH
+    parser = argparse.ArgumentParser(description="Elliott Wave ML")
+    parser.add_argument("--model-path", default=MODEL_PATH, help="Pfad zum Modell")
+    parser.add_argument("--dataset-path", default=DATASET_PATH, help="Pfad zum Dataset")
+    args = parser.parse_args()
+
+    MODEL_PATH = args.model_path
+    DATASET_PATH = args.dataset_path
+
     if os.path.exists(MODEL_PATH):
         print(yellow("Lade gespeichertes Modell..."))
         model = load_model(MODEL_PATH)
