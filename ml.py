@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from scipy.stats import zscore
 
 # === Parameter ===
@@ -422,8 +422,22 @@ def train_ml():
     X = df_valid[features]
     y = df_valid["wave"].astype(str)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.22, random_state=43)
-    model = RandomForestClassifier(n_estimators=200, random_state=42)
-    print(yellow("Trainiere ML-Modell..."))
+
+    param_grid = {
+        "n_estimators": [100, 200],
+        "max_depth": [None, 10, 20],
+        "class_weight": [None, "balanced"],
+    }
+
+    base_model = RandomForestClassifier(random_state=42)
+    grid = GridSearchCV(base_model, param_grid, cv=3, n_jobs=-1)
+    print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
+    grid.fit(X_train, y_train)
+    print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {grid.best_params_}"))
+
+    best_params = grid.best_params_
+    model = RandomForestClassifier(**best_params, random_state=42)
+    print(yellow("Trainiere finales Modell..."))
     model.fit(X_train, y_train)
     train_score = model.score(X_train, y_train)
     test_score = model.score(X_test, y_test)
