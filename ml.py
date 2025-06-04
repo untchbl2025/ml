@@ -3,7 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, GridSearchCV
 from scipy.stats import zscore
 
 # === Parameter ===
@@ -422,8 +422,22 @@ def train_ml():
     X = df_valid[features]
     y = df_valid["wave"].astype(str)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.22, random_state=43)
-    model = RandomForestClassifier(n_estimators=200, random_state=42)
-    print(yellow("Trainiere ML-Modell..."))
+
+    param_grid = {
+        "n_estimators": [100, 200],
+        "max_depth": [None, 10, 20],
+        "class_weight": [None, "balanced"],
+    }
+
+    base_model = RandomForestClassifier(random_state=42)
+    grid = GridSearchCV(base_model, param_grid, cv=3, n_jobs=-1)
+    print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
+    grid.fit(X_train, y_train)
+    print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {grid.best_params_}"))
+
+    best_params = grid.best_params_
+    model = RandomForestClassifier(**best_params, random_state=42)
+    print(yellow("Trainiere finales Modell..."))
     model.fit(X_train, y_train)
     train_score = model.score(X_train, y_train)
     test_score = model.score(X_test, y_test)
@@ -569,7 +583,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
 def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
     df_1h = fetch_bitget_ohlcv_auto(symbol, interval, target_len=livedata_len, page_limit=1000)
     df_4h = fetch_bitget_ohlcv_auto(symbol, "4H", target_len=800, page_limit=1000)
-    print(bold(f"\n==== BITGET DATA ===="))
+    print(bold("\n==== BITGET DATA ===="))
     print(f"Symbol: {symbol} | Intervall: {interval} | Bars: {len(df_1h)} (1H) / {len(df_4h)} (4H)")
     print(f"Letzter Timestamp: {df_1h['timestamp'].iloc[-1]}")
     last_complete_close = df_1h["close"].iloc[-2]
@@ -592,7 +606,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             alt_idx = valid_indices[np.argmax(valid_probs)]
             alt_wave = classes[alt_idx]
             alt_prob = proba_row[alt_idx]
-            print(yellow(f"\nAktuelle erkannte Welle: Noise/Invalid/X"))
+            print(yellow("\nAktuelle erkannte Welle: Noise/Invalid/X"))
             print(yellow(f"Alternativer Vorschlag (höchste ML-Prob.): {alt_wave} ({alt_prob*100:.1f}%) → {LABEL_MAP.get(alt_wave,alt_wave)}"))
             current_wave = alt_wave
             print(green(f"Aktuelle erkannte Welle (endgültig): {current_wave} ({alt_prob*100:.1f}%) - {LABEL_MAP.get(current_wave,current_wave)}"))
@@ -623,7 +637,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     next_wave = get_next_wave(current_wave)
     next_target = elliott_target(df_features, next_wave, last_complete_close) if next_wave else None
 
-    print(bold(f"\n==== ZIELPROJEKTIONEN ===="))
+    print(bold("\n==== ZIELPROJEKTIONEN ===="))
     print(f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)})")
     print(f"Zielprojektion: {target:.2f}")
     if next_wave and next_target:
@@ -641,7 +655,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     # === Trade-Setup Output ===
     direction, sl = suggest_trade(df_features, current_wave, target, last_complete_close, entry_zone, tp_zone)
 
-    print(bold(f"\n==== MARKTSTATISTIK ===="))
+    print(bold("\n==== MARKTSTATISTIK ===="))
     print(f"Letzter Close: {last_complete_close:.2f}")
     print(f"Volatilität (ATR): {df_features['atr'].iloc[-1]:.4f}")
     print(f"RSI: {df_features['rsi'].iloc[-1]:.2f}")
