@@ -602,7 +602,11 @@ def elliott_target(df_features, current_wave, last_complete_close):
 
 def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone=None, risk=0.01, sl_puffer=0.005):
     entry = last_close
-    if current_wave in ['1','3','5','B','ZIGZAG','TRIANGLE']:
+    if target is None:
+        print(red("Kein gültiges Kursziel berechnet."))
+        return None, None
+
+    if target > entry:
         direction = "LONG"
         tp = target
         sl = entry * (1 - risk - sl_puffer)
@@ -610,7 +614,8 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
         direction = "SHORT"
         tp = target
         sl = entry * (1 + risk + sl_puffer)
-    size = 1000 * risk / abs(entry-tp) if abs(entry-tp) > 0 else 0
+
+    size = 1000 * risk / abs(entry - tp) if abs(entry - tp) > 0 else 0
     print(bold(f"\n[TRADE-SETUP] {direction} | Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | PosSize: {size:.1f}x"))
     # Entry- und TP-Zonen werden nicht ausgegeben
     return direction, sl
