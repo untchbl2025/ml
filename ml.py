@@ -686,7 +686,9 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     next_wave = get_next_wave(current_wave)
     if next_wave:
         next_target, next_wave_start, _ = elliott_target(
-            df_features, next_wave, last_complete_close
+            df_features,
+            next_wave,
+            target if target is not None else last_wave_close,
         )
     else:
         next_target = None
@@ -694,7 +696,11 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     next_next_wave = get_next_wave(next_wave) if next_wave else None
     if next_next_wave:
         next_next_target, next_next_wave_start, _ = elliott_target(
-            df_features, next_next_wave, last_complete_close
+            df_features,
+            next_next_wave,
+            next_target if next_target is not None else (
+                target if target is not None else last_wave_close
+            ),
         )
     else:
         next_next_target = None
@@ -720,7 +726,6 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         high = df_features["high"].iloc[idx_pattern].max()
         low  = df_features["low"].iloc[idx_pattern].min()
         breakout_zone = (low, high)
-        print(bold(f"Breakout-Zone: {low:.4f} – {high:.4f}"))
 
     # === Trade-Setup Output ===
     trade_wave = next_wave if next_target else current_wave
