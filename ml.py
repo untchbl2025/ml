@@ -48,11 +48,20 @@ LABEL_MAP = {
     "INVALID_WAVE": "Ungültig"
 }
 
-def bold(x): return f"\033[1m{x}\033[0m"
-def blue(x): return f"\033[94m{x}\033[0m"
-def red(x): return f"\033[91m{x}\033[0m"
-def green(x): return f"\033[92m{x}\033[0m"
-def yellow(x): return f"\033[93m{x}\033[0m"
+def bold(x):
+    return str(x)
+
+def blue(x):
+    return str(x)
+
+def red(x):
+    return str(x)
+
+def green(x):
+    return str(x)
+
+def yellow(x):
+    return str(x)
 
 # === Indikator-Berechnungen ===
 def calc_rsi(series, period=14):
@@ -428,27 +437,8 @@ def train_ml():
     train_score = model.score(X_train, y_train)
     test_score = model.score(X_test, y_test)
     print(green(f"Training fertig. Genauigkeit (Train): {train_score:.3f} | (Test): {test_score:.3f}"))
-    print(f"{blue('Wichtigste ML-Features:')}")
     importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
-    print(importance.head(8).round(3))
     return model, features, importance
-
-# === Fibo-Bereiche für Entry/TP/SL (automatisch, pro Welle) ===
-def get_fibo_zones(df, wave, side="LONG"):
-    idx = df[df['wave_pred'] == wave].index
-    if len(idx) < 2:
-        return None, None
-    start, end = idx[0], idx[-1]
-    price_start = df['close'].iloc[start]
-    price_end   = df['close'].iloc[end]
-    diff = price_end - price_start
-    if side == "LONG":
-        entry_zone = [price_start + diff * 0.236, price_start + diff * 0.382]
-        tp_zone    = [price_start + diff * 0.618, price_start + diff * 1.0]
-    else:
-        entry_zone = [price_start - diff * 0.236, price_start - diff * 0.382]
-        tp_zone    = [price_start - diff * 0.618, price_start - diff * 1.0]
-    return entry_zone, tp_zone
 
 # === Zielprojektionen / Pattern-Targets ===
 def pattern_target(df_features, current_pattern, last_complete_close):
@@ -549,9 +539,9 @@ def elliott_target(df_features, current_wave, last_complete_close):
     else:
         return last_complete_close * 1.01
 
-def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone=None, risk=0.01, sl_puffer=0.005):
+def suggest_trade(df, current_wave, target, last_close, risk=0.01, sl_puffer=0.005):
     entry = last_close
-    if current_wave in ['1','3','5','B','ZIGZAG','TRIANGLE']:
+    if current_wave in ['1', '3', '5', 'B', 'ZIGZAG', 'TRIANGLE']:
         direction = "LONG"
         tp = target
         sl = entry * (1 - risk - sl_puffer)
@@ -559,11 +549,30 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
         direction = "SHORT"
         tp = target
         sl = entry * (1 + risk + sl_puffer)
-    size = 1000 * risk / abs(entry-tp) if abs(entry-tp) > 0 else 0
+    size = 1000 * risk / abs(entry - tp) if abs(entry - tp) > 0 else 0
     print(bold(f"\n[TRADE-SETUP] {direction} | Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | PosSize: {size:.1f}x"))
-    if entry_zone and tp_zone:
-        print(yellow(f"Entry-Zone: {entry_zone[0]:.4f} – {entry_zone[1]:.4f} | TP-Zone: {tp_zone[0]:.4f} – {tp_zone[1]:.4f}"))
-    return direction, sl
+    return direction, sl, tp, size
+
+
+def print_summary_table(symbol, current_wave, target, next_wave, next_target, last_close,
+                        direction, sl, tp, pos_size, breakout_zone=None):
+    rows = [
+        ("Symbol", symbol),
+        ("Aktuelle Welle", f"{current_wave} ({LABEL_MAP.get(current_wave, current_wave)})"),
+        ("Zielprojektion", f"{target:.2f}"),
+    ]
+    if next_wave and next_target:
+        rows.append(("Nächste Welle",
+                     f"{next_wave} ({LABEL_MAP.get(next_wave, next_wave)}) Ziel {next_target:.2f}"))
+    if breakout_zone:
+        rows.append(("Breakout-Zone", f"{breakout_zone[0]:.4f} - {breakout_zone[1]:.4f}"))
+    rows.append(("Trade",
+                 f"{direction} | Entry {last_close:.2f} | SL {sl:.2f} | TP {tp:.2f} | Size {pos_size:.1f}x"))
+
+    width = max(len(k) for k, _ in rows) + 2
+    print(bold("\n=== ERGEBNIS ==="))
+    for key, val in rows:
+        print(f"{key.ljust(width)}{val}")
 
 # === Hauptfunktion für Analyse & Grafik ===
 def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
@@ -608,51 +617,26 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         label = classes[idx]
         print(f"  {LABEL_MAP.get(label,label)}: {proba_row[idx]*100:.1f}%")
 
-    # ==== Neue Zonenberechnung ====
-    entry_zone, tp_zone = get_fibo_zones(df_features, current_wave, side="LONG" if current_wave in ['1','3','5','B','ZIGZAG','TRIANGLE'] else "SHORT")
-    print(bold("\n==== Entry- & TP-Zonen (Fibonacci Elliott) ===="))
-    if entry_zone and tp_zone:
-        print(f"Entry-Zone: {entry_zone[0]:.4f} – {entry_zone[1]:.4f}")
-        print(f"TP-Zone:    {tp_zone[0]:.4f} – {tp_zone[1]:.4f}")
-    else:
-        print("Entry-Zone: Keine valide Zone erkannt")
-        print("TP-Zone:    Keine valide Zone erkannt")
 
     # ==== Zielprojektionen ====
     target = elliott_target(df_features, current_wave, last_complete_close)
     next_wave = get_next_wave(current_wave)
     next_target = elliott_target(df_features, next_wave, last_complete_close) if next_wave else None
 
-    print(bold(f"\n==== ZIELPROJEKTIONEN ===="))
-    print(f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)})")
-    print(f"Zielprojektion: {target:.2f}")
-    if next_wave and next_target:
-        print(f"Nächste erwartete Welle: {next_wave} ({LABEL_MAP.get(next_wave,next_wave)}) | Zielprojektion: {next_target:.2f}")
+    # Ergebnis-Tabelle
 
     # === Breakout Zone (letzte Patternrange) ===
     idx_pattern = df_features[df_features["wave_pred"] == current_wave].index
     breakout_zone = None
     if len(idx_pattern) > 1:
         high = df_features["high"].iloc[idx_pattern].max()
-        low  = df_features["low"].iloc[idx_pattern].min()
+        low = df_features["low"].iloc[idx_pattern].min()
         breakout_zone = (low, high)
-        print(bold(f"Breakout-Zone: {low:.4f} – {high:.4f}"))
 
     # === Trade-Setup Output ===
-    direction, sl = suggest_trade(df_features, current_wave, target, last_complete_close, entry_zone, tp_zone)
-
-    print(bold(f"\n==== MARKTSTATISTIK ===="))
-    print(f"Letzter Close: {last_complete_close:.2f}")
-    print(f"Volatilität (ATR): {df_features['atr'].iloc[-1]:.4f}")
-    print(f"RSI: {df_features['rsi'].iloc[-1]:.2f}")
-    print(f"MACD: {df_features['macd'].iloc[-1]:.4f}")
-    print(f"Stoch K: {df_features['stoch_k'].iloc[-1]:.2f}")
-    print(f"CMF: {df_features['cmf'].iloc[-1]:.4f}")
-
-    print(bold("\n==== WICHTIGSTE FEATURES (aktuelle Kerze) ===="))
-    top_feats = importance.sort_values(ascending=False).head(8)
-    for feat in top_feats.index:
-        print(f"{feat}: {df_features[feat].iloc[-1]:.4f}")
+    direction, sl, tp, pos_size = suggest_trade(df_features, current_wave, target, last_complete_close)
+    print_summary_table(symbol, current_wave, target, next_wave, next_target, last_complete_close,
+                        direction, sl, tp, pos_size, breakout_zone)
 
     # === PRO-Level Grafik ===
     plt.figure(figsize=(17, 8))
@@ -665,11 +649,6 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     # Breakout-Zone Highlight
     if breakout_zone:
         plt.axhspan(breakout_zone[0], breakout_zone[1], color="orange", alpha=0.19, label="Breakout-Zone")
-    # Fibo Entry/TP-Zonen
-    if entry_zone:
-        plt.axhspan(entry_zone[0], entry_zone[1], color="green", alpha=0.15, label="Entry-Zone")
-    if tp_zone:
-        plt.axhspan(tp_zone[0], tp_zone[1], color="blue", alpha=0.14, label="TP-Zone")
     # Wellen/Pattern Text-Annotationen
     for wave in set(df_features["wave_pred"]):
         idxs = df_features[df_features["wave_pred"] == wave].index
