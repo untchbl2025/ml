@@ -5,12 +5,39 @@ import requests
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV
 from scipy.stats import zscore
+import os
+import joblib
 
 # === Parameter ===
 SYMBOL = "SPXUSDT"
 LIVEDATA_LEN = 1000
 TRAIN_N = 1000
 PUFFER = 0.02
+
+MODEL_PATH = "/content/drive/MyDrive/elliott_model.joblib"
+DATASET_PATH = "/content/drive/MyDrive/elliott_dataset.joblib"
+
+FEATURES_BASE = [
+    "returns","range","body","ma_diff","vol_ratio","fibo_level",
+    "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
+    "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
+    "rsi_4h","close_4h","vol_4h"
+]
+
+def save_model(model, path):
+    joblib.dump(model, path)
+
+
+def load_model(path):
+    return joblib.load(path)
+
+
+def save_dataset(df, path):
+    joblib.dump(df, path)
+
+
+def load_dataset(path):
+    return joblib.load(path)
 
 PATTERN_PROJ_FACTORS = {
     "TRIANGLE": 1.0,
@@ -415,20 +442,19 @@ def fetch_bitget_ohlcv_auto(symbol, interval="1H", target_len=1000, page_limit=1
 
 # === ML Training ===
 def train_ml():
-    print(bold("Erzeuge und kombiniere alle Muster (Impuls, Korrektur, Triangle, usw.)..."))
-    df = generate_rulebased_synthetic_with_patterns(
-        n=TRAIN_N, negative_ratio=0.15, pattern_ratio=0.35)
+    if os.path.exists(DATASET_PATH):
+        print(yellow("Lade vorhandenes Dataset..."))
+        df = load_dataset(DATASET_PATH)
+    else:
+        print(bold("Erzeuge und kombiniere alle Muster (Impuls, Korrektur, Triangle, usw.)..."))
+        df = generate_rulebased_synthetic_with_patterns(
+            n=TRAIN_N, negative_ratio=0.15, pattern_ratio=0.35)
+        save_dataset(df, DATASET_PATH)
     print(f"{blue('Gesamtanzahl Datenpunkte:')} {len(df)}")
     df = make_features(df)
     df_valid = df[~df['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
     print(f"{blue('Nach Filterung gültige Datenpunkte:')} {len(df_valid)}")
-    features = [
-        "returns","range","body","ma_diff","vol_ratio","fibo_level",
-        "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
-        "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
-        "rsi_4h","close_4h","vol_4h"
-    ]
-    features = [f for f in features if f in df_valid.columns]
+    features = [f for f in FEATURES_BASE if f in df_valid.columns]
     X = df_valid[features]
     y = df_valid["wave"].astype(str)
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.22, random_state=43)
@@ -455,6 +481,7 @@ def train_ml():
     print(f"{blue('Wichtigste ML-Features:')}")
     importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
     print(importance.head(8).round(3))
+    save_model(model, MODEL_PATH)
     return model, features, importance
 
 # === Fibo-Bereiche für Entry/TP/SL (automatisch, pro Welle) ===
@@ -704,7 +731,19 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
 
 # === Main ===
 def main():
-    model, features, importance = train_ml()
+    if os.path.exists(MODEL_PATH):
+        print(yellow("Lade gespeichertes Modell..."))
+        model = load_model(MODEL_PATH)
+        if os.path.exists(DATASET_PATH):
+            df_tmp = load_dataset(DATASET_PATH)
+            df_tmp = make_features(df_tmp)
+            df_tmp = df_tmp[~df_tmp['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
+            features = [f for f in FEATURES_BASE if f in df_tmp.columns]
+        else:
+            features = FEATURES_BASE
+        importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
+    else:
+        model, features, importance = train_ml()
     run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN)
 
 if __name__ == "__main__":
