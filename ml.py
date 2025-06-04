@@ -456,7 +456,10 @@ def train_ml(skip_grid_search=False, max_samples=None):
     df = make_features(df)
     df_valid = df[~df['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
     if max_samples is not None and len(df_valid) > max_samples:
-        df_valid = df_valid.sample(max_samples, random_state=42).reset_index(drop=True)
+        groups = df_valid.groupby('wave')
+        per_class = max_samples // len(groups)
+        sampled = [g.sample(min(len(g), per_class), random_state=42) for _, g in groups]
+        df_valid = pd.concat(sampled).sample(frac=1, random_state=42).reset_index(drop=True)
     print(f"{blue('Nach Filterung gültige Datenpunkte:')} {len(df_valid)}")
     features = [f for f in FEATURES_BASE if f in df_valid.columns]
     X = df_valid[features]
@@ -638,7 +641,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
         tp = target
         sl = entry * (1 + risk + sl_puffer)
 
-    size = 1000 * risk / abs(entry - tp) if abs(entry - tp) > 0 else 0
+    size = 1000 * risk / abs(entry - sl) if abs(entry - sl) > 0 else 0
     print(
         bold(
             f"\n[TRADE-SETUP] {direction} | Entry: {entry:.4f} | SL: {sl:.4f} | TP: {tp:.4f} | PosSize: {size:.1f}x"
@@ -680,6 +683,19 @@ def evaluate_wave_structure(df, label_col="wave_pred"):
     print(green("Wellenreihenfolge scheint konsistent."))
     return True
 
+# === Prediction Smoothing ===
+def smooth_predictions(pred, window=5):
+    """Return smoothed labels using majority voting."""
+    half = window // 2
+    smoothed = []
+    for i in range(len(pred)):
+        start = max(0, i - half)
+        end = min(len(pred), i + half + 1)
+        window_vals = pred[start:end]
+        mode = pd.Series(window_vals).mode()
+        smoothed.append(mode.iloc[0] if len(mode) else pred[i])
+    return np.array(smoothed)
+
 # === Hauptfunktion für Analyse & Grafik ===
 def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
     df_1h = fetch_bitget_ohlcv_auto(symbol, interval, target_len=livedata_len, page_limit=1000)
@@ -689,9 +705,11 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     print(f"Letzter Timestamp: {df_1h['timestamp'].iloc[-1]}")
     last_complete_close = df_1h["close"].iloc[-2]
     df_features = make_features(df_1h, df_4h)
-    pred = model.predict(df_features[features])
+    pred_raw = model.predict(df_features[features])
+    pred = smooth_predictions(pred_raw)
     pred_proba = model.predict_proba(df_features[features])
     classes = model.classes_
+    df_features["wave_pred_raw"] = pred_raw
     df_features["wave_pred"] = pred
     proba_row = pred_proba[-1]
     current_wave = df_features["wave_pred"].iloc[-1]
