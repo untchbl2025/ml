@@ -5,6 +5,7 @@ import requests
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split, GridSearchCV
 from scipy.stats import zscore
+from tabulate import tabulate
 import os
 import joblib
 
@@ -527,13 +528,17 @@ def get_next_wave(current_wave):
         return None
 
 def elliott_target(df_features, current_wave, last_complete_close):
-    if str(current_wave) in PATTERN_PROJ_FACTORS:
-        return pattern_target(df_features, str(current_wave), last_complete_close)
-    idx = lambda wave: df_features[df_features["wave_pred"]==wave].index
+    idx = lambda wave: df_features[df_features["wave_pred"] == wave].index
     start_idx = idx(current_wave)
-    wave_start_price = df_features["close"].iloc[start_idx[0]] if len(start_idx)>0 else last_complete_close
+    wave_start_price = df_features["close"].iloc[start_idx[0]] if len(start_idx) > 0 else last_complete_close
+    last_wave_close = df_features["close"].iloc[start_idx[-1]] if len(start_idx) > 0 else last_complete_close
+
+    if str(current_wave) in PATTERN_PROJ_FACTORS:
+        target = pattern_target(df_features, str(current_wave), last_complete_close)
+        return target, wave_start_price, last_wave_close
+
     if str(current_wave) == "1":
-        return wave_start_price * 1.02
+        return wave_start_price * 1.02, wave_start_price, last_wave_close
     elif str(current_wave) == "2":
         idx1 = idx("1")
         if len(idx1) > 0:
@@ -543,16 +548,16 @@ def elliott_target(df_features, current_wave, last_complete_close):
             target = high1 - retracement * (high1 - low2)
             if target >= low2:
                 return None
-            return target
+            return target, wave_start_price, last_wave_close
         else:
-            return last_complete_close * 0.98
+            return last_complete_close * 0.98, wave_start_price, last_wave_close
     elif str(current_wave) == "3":
         idx1 = idx("1")
         if len(idx1) > 1 and len(start_idx) > 0:
             w1len = df_features["close"].iloc[idx1[-1]] - df_features["close"].iloc[idx1[0]]
-            return wave_start_price + 1.618 * w1len
+            return wave_start_price + 1.618 * w1len, wave_start_price, last_wave_close
         else:
-            return last_complete_close * 1.05
+            return last_complete_close * 1.05, wave_start_price, last_wave_close
     elif str(current_wave) == "4":
         idx3 = idx("3")
         if len(idx3) > 1 and len(start_idx) > 0:
@@ -560,16 +565,16 @@ def elliott_target(df_features, current_wave, last_complete_close):
             target = wave_start_price - 0.382 * abs(w3len)
             if target >= wave_start_price:
                 return None
-            return target
+            return target, wave_start_price, last_wave_close
         else:
-            return last_complete_close * 0.98
+            return last_complete_close * 0.98, wave_start_price, last_wave_close
     elif str(current_wave) == "5":
         idx1 = idx("1")
         if len(idx1) > 1 and len(start_idx) > 0:
             w1len = df_features["close"].iloc[idx1[-1]] - df_features["close"].iloc[idx1[0]]
-            return wave_start_price + w1len
+            return wave_start_price + w1len, wave_start_price, last_wave_close
         else:
-            return last_complete_close * 1.02
+            return last_complete_close * 1.02, wave_start_price, last_wave_close
     elif str(current_wave) == "A":
         idx5 = idx("5")
         if len(idx5) > 1 and len(start_idx) > 0:
@@ -577,16 +582,16 @@ def elliott_target(df_features, current_wave, last_complete_close):
             target = wave_start_price - w5len
             if target >= wave_start_price:
                 return None
-            return target
+            return target, wave_start_price, last_wave_close
         else:
-            return last_complete_close * 0.98
+            return last_complete_close * 0.98, wave_start_price, last_wave_close
     elif str(current_wave) == "B":
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
             wa = df_features["close"].iloc[idxa[-1]] - df_features["close"].iloc[idxa[0]]
-            return wave_start_price + 0.618 * abs(wa)
+            return wave_start_price + 0.618 * abs(wa), wave_start_price, last_wave_close
         else:
-            return last_complete_close * 1.01
+            return last_complete_close * 1.01, wave_start_price, last_wave_close
     elif str(current_wave) == "C":
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
@@ -594,11 +599,11 @@ def elliott_target(df_features, current_wave, last_complete_close):
             target = wave_start_price - 1.0 * abs(wa)
             if target >= wave_start_price:
                 return None
-            return target
+            return target, wave_start_price, last_wave_close
         else:
-            return last_complete_close * 0.98
+            return last_complete_close * 0.98, wave_start_price, last_wave_close
     else:
-        return last_complete_close * 1.01
+        return last_complete_close * 1.01, wave_start_price, last_wave_close
 
 def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone=None, risk=0.01, sl_puffer=0.005):
     entry = last_close
@@ -618,7 +623,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
     size = 1000 * risk / abs(entry - tp) if abs(entry - tp) > 0 else 0
     print(bold(f"\n[TRADE-SETUP] {direction} | Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | PosSize: {size:.1f}x"))
     # Entry- und TP-Zonen werden nicht ausgegeben
-    return direction, sl
+    return direction, sl, tp, entry
 
 # === Hauptfunktion für Analyse & Grafik ===
 def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
@@ -671,9 +676,14 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     )
 
     # ==== Zielprojektionen ====
-    target = elliott_target(df_features, current_wave, last_complete_close)
+    target, wave_start_price, last_wave_close = elliott_target(
+        df_features, current_wave, last_complete_close
+    )
     next_wave = get_next_wave(current_wave)
-    next_target = elliott_target(df_features, next_wave, last_complete_close) if next_wave else None
+    if next_wave:
+        next_target, _, _ = elliott_target(df_features, next_wave, last_complete_close)
+    else:
+        next_target = None
 
     print(bold("\n==== ZIELPROJEKTIONEN ===="))
     print(f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)})")
@@ -691,7 +701,23 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         print(bold(f"Breakout-Zone: {low:.4f} – {high:.4f}"))
 
     # === Trade-Setup Output ===
-    direction, sl = suggest_trade(df_features, current_wave, target, last_complete_close, entry_zone, tp_zone)
+    direction, sl, tp, entry = suggest_trade(
+        df_features, current_wave, target, last_complete_close, entry_zone, tp_zone
+    )
+
+    table = [
+        ["Wave Start", f"{wave_start_price:.2f}"],
+        ["Last Close", f"{last_wave_close:.2f}"],
+        ["Breakout Low", f"{breakout_zone[0]:.2f}" if breakout_zone else "n/a"],
+        ["Breakout High", f"{breakout_zone[1]:.2f}" if breakout_zone else "n/a"],
+        ["Target", f"{target:.2f}" if target is not None else "n/a"],
+        ["Next Target", f"{next_target:.2f}" if next_target else "n/a"],
+        ["Entry", f"{entry:.2f}"],
+        ["SL", f"{sl:.2f}"],
+        ["TP", f"{tp:.2f}"],
+    ]
+
+    print(tabulate(table, headers=["Metric", "Value"], tablefmt="grid"))
 
     # Statistik- und Feature-Logs entfernt
 
@@ -700,7 +726,8 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     plt.plot(df_features["close"].values, label="Kurs", linewidth=1.3)
     colors = pd.Categorical(df_features["wave_pred"]).codes
     plt.scatter(df_features.index, df_features["close"].values, c=colors, cmap="rainbow", s=18, label="WaveClass", alpha=0.65)
-    plt.axhline(target, color="black", linestyle="--", linewidth=1.5, label=f"Zielprojektion {current_wave} {target:.2f}")
+    if target is not None:
+        plt.axhline(target, color="black", linestyle="--", linewidth=1.5, label=f"Zielprojektion {current_wave} {target:.2f}")
     if next_wave and next_target:
         plt.axhline(next_target, color="grey", linestyle=":", linewidth=1.3, label=f"Nächste Welle {next_wave} Ziel {next_target:.2f}")
     # Breakout-Zone Highlight
