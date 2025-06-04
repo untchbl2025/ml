@@ -649,52 +649,32 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     next_wave = get_next_wave(current_wave)
     next_target = elliott_target(df_features, next_wave, last_complete_close) if next_wave else None
 
-    print(bold("\n==== ZIELPROJEKTIONEN ===="))
-    print(f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)})")
-    print(f"Zielprojektion: {target:.2f}")
+    proj_rows = [
+        ["Aktuelle Welle", f"{current_wave} ({LABEL_MAP.get(current_wave, current_wave)})"],
+        ["Zielprojektion", f"{target:.2f}"],
+    ]
     if next_wave and next_target:
-        print(f"Nächste erwartete Welle: {next_wave} ({LABEL_MAP.get(next_wave,next_wave)}) | Zielprojektion: {next_target:.2f}")
+        proj_rows.append([
+            "Nächste erwartete Welle",
+            f"{next_wave} ({LABEL_MAP.get(next_wave, next_wave)}) | Zielprojektion: {next_target:.2f}",
+        ])
 
     # === Breakout Zone (letzte Patternrange) ===
     idx_pattern = df_features[df_features["wave_pred"] == current_wave].index
     breakout_zone = None
     if len(idx_pattern) > 1:
         high = df_features["high"].iloc[idx_pattern].max()
-        low  = df_features["low"].iloc[idx_pattern].min()
+        low = df_features["low"].iloc[idx_pattern].min()
         breakout_zone = (low, high)
-        print(bold(f"Breakout-Zone: {low:.4f} – {high:.4f}"))
+        proj_rows.append(["Breakout-Zone", f"{low:.4f} – {high:.4f}"])
+
+    proj_table = pd.DataFrame(proj_rows, columns=["Kategorie", "Wert"])
+    print(bold("\n==== ZIELPROJEKTIONEN ===="))
+    print(tabulate(proj_table, headers="keys", tablefmt="psql", showindex=False))
 
     # === Trade-Setup Output ===
     direction, sl = suggest_trade(df_features, current_wave, target, last_complete_close, entry_zone, tp_zone)
 
-    print(bold("\n==== MARKTSTATISTIK ===="))
-    stats_table = pd.DataFrame({
-        "Metric": [
-            "Letzter Close",
-            "Volatilität (ATR)",
-            "RSI",
-            "MACD",
-            "Stoch K",
-            "CMF",
-        ],
-        "Wert": [
-            f"{last_complete_close:.2f}",
-            f"{df_features['atr'].iloc[-1]:.4f}",
-            f"{df_features['rsi'].iloc[-1]:.2f}",
-            f"{df_features['macd'].iloc[-1]:.4f}",
-            f"{df_features['stoch_k'].iloc[-1]:.2f}",
-            f"{df_features['cmf'].iloc[-1]:.4f}",
-        ],
-    })
-    print(tabulate(stats_table, headers="keys", tablefmt="psql", showindex=False))
-
-    print(bold("\n==== WICHTIGSTE FEATURES (aktuelle Kerze) ===="))
-    top_feats = importance.sort_values(ascending=False).head(8)
-    feat_table = pd.DataFrame({
-        "Feature": list(top_feats.index),
-        "Wert": [f"{df_features[f].iloc[-1]:.4f}" for f in top_feats.index],
-    })
-    print(tabulate(feat_table, headers="keys", tablefmt="psql", showindex=False))
 
     # === PRO-Level Grafik ===
     plt.figure(figsize=(17, 8))
