@@ -621,7 +621,11 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
         sl = entry * (1 + risk + sl_puffer)
 
     size = 1000 * risk / abs(entry - tp) if abs(entry - tp) > 0 else 0
-    print(bold(f"\n[TRADE-SETUP] {direction} | Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | PosSize: {size:.1f}x"))
+    print(
+        bold(
+            f"\n[TRADE-SETUP] {direction} | Entry: {entry:.4f} | SL: {sl:.4f} | TP: {tp:.4f} | PosSize: {size:.1f}x"
+        )
+    )
     # Entry- und TP-Zonen werden nicht ausgegeben
     return direction, sl, tp, entry
 
@@ -681,15 +685,21 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     )
     next_wave = get_next_wave(current_wave)
     if next_wave:
-        next_target, _, _ = elliott_target(df_features, next_wave, last_complete_close)
+        next_target, next_wave_start, _ = elliott_target(
+            df_features, next_wave, last_complete_close
+        )
     else:
         next_target = None
+        next_wave_start = None
 
     print(bold("\n==== ZIELPROJEKTIONEN ===="))
-    print(f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)})")
-    print(f"Zielprojektion: {target:.2f}")
+    print(
+        f"Aktuelle Welle: {current_wave} ({LABEL_MAP.get(current_wave,current_wave)}) | Start: {wave_start_price:.4f} | Ziel: {target:.4f}"
+    )
     if next_wave and next_target:
-        print(f"Nächste erwartete Welle: {next_wave} ({LABEL_MAP.get(next_wave,next_wave)}) | Zielprojektion: {next_target:.2f}")
+        print(
+            f"Nächste erwartete Welle: {next_wave} ({LABEL_MAP.get(next_wave,next_wave)}) | Start: {next_wave_start:.4f} | Ziel: {next_target:.4f}"
+        )
 
     # === Breakout Zone (letzte Patternrange) ===
     idx_pattern = df_features[df_features["wave_pred"] == current_wave].index
@@ -701,20 +711,23 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         print(bold(f"Breakout-Zone: {low:.4f} – {high:.4f}"))
 
     # === Trade-Setup Output ===
+    trade_wave = next_wave if next_target else current_wave
+    trade_target = next_target if next_target else target
     direction, sl, tp, entry = suggest_trade(
-        df_features, current_wave, target, last_complete_close, entry_zone, tp_zone
+        df_features, trade_wave, trade_target, last_complete_close, entry_zone, tp_zone
     )
 
     table = [
-        ["Wave Start", f"{wave_start_price:.2f}"],
-        ["Last Close", f"{last_wave_close:.2f}"],
-        ["Breakout Low", f"{breakout_zone[0]:.2f}" if breakout_zone else "n/a"],
-        ["Breakout High", f"{breakout_zone[1]:.2f}" if breakout_zone else "n/a"],
-        ["Target", f"{target:.2f}" if target is not None else "n/a"],
-        ["Next Target", f"{next_target:.2f}" if next_target else "n/a"],
-        ["Entry", f"{entry:.2f}"],
-        ["SL", f"{sl:.2f}"],
-        ["TP", f"{tp:.2f}"],
+        ["Wave Start", f"{wave_start_price:.4f}"],
+        ["Next Wave Start", f"{next_wave_start:.4f}" if next_wave_start else "n/a"],
+        ["Last Close", f"{last_wave_close:.4f}"],
+        ["Breakout Low", f"{breakout_zone[0]:.4f}" if breakout_zone else "n/a"],
+        ["Breakout High", f"{breakout_zone[1]:.4f}" if breakout_zone else "n/a"],
+        ["Target", f"{target:.4f}" if target is not None else "n/a"],
+        ["Next Target", f"{next_target:.4f}" if next_target else "n/a"],
+        ["Entry", f"{entry:.4f}"],
+        ["SL", f"{sl:.4f}"],
+        ["TP", f"{tp:.4f}"],
     ]
 
     print(tabulate(table, headers=["Metric", "Value"], tablefmt="grid"))
@@ -727,9 +740,9 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     colors = pd.Categorical(df_features["wave_pred"]).codes
     plt.scatter(df_features.index, df_features["close"].values, c=colors, cmap="rainbow", s=18, label="WaveClass", alpha=0.65)
     if target is not None:
-        plt.axhline(target, color="black", linestyle="--", linewidth=1.5, label=f"Zielprojektion {current_wave} {target:.2f}")
+        plt.axhline(target, color="black", linestyle="--", linewidth=1.5, label=f"Zielprojektion {current_wave} {target:.4f}")
     if next_wave and next_target:
-        plt.axhline(next_target, color="grey", linestyle=":", linewidth=1.3, label=f"Nächste Welle {next_wave} Ziel {next_target:.2f}")
+        plt.axhline(next_target, color="grey", linestyle=":", linewidth=1.3, label=f"Nächste Welle {next_wave} Ziel {next_target:.4f}")
     # Breakout-Zone Highlight
     if breakout_zone:
         plt.axhspan(breakout_zone[0], breakout_zone[1], color="orange", alpha=0.19, label="Breakout-Zone")
