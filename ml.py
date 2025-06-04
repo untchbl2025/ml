@@ -48,11 +48,21 @@ LABEL_MAP = {
     "INVALID_WAVE": "Ungültig"
 }
 
-def bold(x): return f"\033[1m{x}\033[0m"
-def blue(x): return f"\033[94m{x}\033[0m"
-def red(x): return f"\033[91m{x}\033[0m"
-def green(x): return f"\033[92m{x}\033[0m"
-def yellow(x): return f"\033[93m{x}\033[0m"
+def bold(x):
+    """Return text without ANSI color codes."""
+    return str(x)
+
+def blue(x):
+    return str(x)
+
+def red(x):
+    return str(x)
+
+def green(x):
+    return str(x)
+
+def yellow(x):
+    return str(x)
 
 # === Indikator-Berechnungen ===
 def calc_rsi(series, period=14):
@@ -575,8 +585,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
         sl = entry * (1 + risk + sl_puffer)
     size = 1000 * risk / abs(entry-tp) if abs(entry-tp) > 0 else 0
     print(bold(f"\n[TRADE-SETUP] {direction} | Entry: {entry:.2f} | SL: {sl:.2f} | TP: {tp:.2f} | PosSize: {size:.1f}x"))
-    if entry_zone and tp_zone:
-        print(yellow(f"Entry-Zone: {entry_zone[0]:.4f} – {entry_zone[1]:.4f} | TP-Zone: {tp_zone[0]:.4f} – {tp_zone[1]:.4f}"))
+    # Entry- und TP-Zonen werden nicht ausgegeben
     return direction, sl
 
 # === Hauptfunktion für Analyse & Grafik ===
@@ -622,15 +631,12 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         label = classes[idx]
         print(f"  {LABEL_MAP.get(label,label)}: {proba_row[idx]*100:.1f}%")
 
-    # ==== Neue Zonenberechnung ====
-    entry_zone, tp_zone = get_fibo_zones(df_features, current_wave, side="LONG" if current_wave in ['1','3','5','B','ZIGZAG','TRIANGLE'] else "SHORT")
-    print(bold("\n==== Entry- & TP-Zonen (Fibonacci Elliott) ===="))
-    if entry_zone and tp_zone:
-        print(f"Entry-Zone: {entry_zone[0]:.4f} – {entry_zone[1]:.4f}")
-        print(f"TP-Zone:    {tp_zone[0]:.4f} – {tp_zone[1]:.4f}")
-    else:
-        print("Entry-Zone: Keine valide Zone erkannt")
-        print("TP-Zone:    Keine valide Zone erkannt")
+    # ==== Fibo-Zonen berechnen (nicht ausgeben) ====
+    entry_zone, tp_zone = get_fibo_zones(
+        df_features,
+        current_wave,
+        side="LONG" if current_wave in ['1', '3', '5', 'B', 'ZIGZAG', 'TRIANGLE'] else "SHORT",
+    )
 
     # ==== Zielprojektionen ====
     target = elliott_target(df_features, current_wave, last_complete_close)
