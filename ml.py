@@ -23,6 +23,7 @@ FEATURES_BASE = [
     "returns","range","body","ma_diff","vol_ratio","fibo_level",
     "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
     "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
+    "ema_ratio","bb_width","roc_10",
     "rsi_4h","close_4h","vol_4h"
 ]
 
@@ -401,6 +402,13 @@ def make_features(df, df_4h=None):
     df['high_z'] = zscore(df['high'])
     df['low_z'] = zscore(df['low'])
     df['vol_z'] = zscore(df['volume'])
+    df['ema_fast'] = df['close'].ewm(span=12, adjust=False).mean()
+    df['ema_slow'] = df['close'].ewm(span=26, adjust=False).mean()
+    df['ema_ratio'] = df['ema_fast'] / (df['ema_slow'] + 1e-8)
+    bb_mid = df['close'].rolling(20).mean()
+    bb_std = df['close'].rolling(20).std()
+    df['bb_width'] = (bb_std * 4) / (bb_mid + 1e-8)
+    df['roc_10'] = df['close'].pct_change(10).fillna(0)
     if 'subwave' not in df.columns:
         df = synthetic_subwaves(df)
     if df_4h is not None:
@@ -591,9 +599,15 @@ def elliott_target(df_features, current_wave, last_complete_close):
             return last_complete_close * 0.98, wave_start_price, last_wave_close
     elif str(current_wave) == "5":
         idx1 = idx("1")
+        idx3 = idx("3")
         if len(idx1) > 1 and len(start_idx) > 0:
             w1len = df_features["close"].iloc[idx1[-1]] - df_features["close"].iloc[idx1[0]]
-            return wave_start_price + w1len, wave_start_price, last_wave_close
+            if len(idx3) > 1:
+                w3len = df_features["close"].iloc[idx3[-1]] - df_features["close"].iloc[idx3[0]]
+                proj_len = max(w1len, w3len) * 0.618
+            else:
+                proj_len = w1len
+            return wave_start_price + proj_len, wave_start_price, last_wave_close
         else:
             return last_complete_close * 1.02, wave_start_price, last_wave_close
     elif str(current_wave) == "A":
