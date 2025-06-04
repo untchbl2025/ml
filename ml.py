@@ -9,7 +9,7 @@ from scipy.stats import zscore
 # === Parameter ===
 SYMBOL = "SPXUSDT"
 LIVEDATA_LEN = 1000
-TRAIN_N = 30000
+TRAIN_N = 1000
 PUFFER = 0.02
 
 PATTERN_PROJ_FACTORS = {
