@@ -443,7 +443,7 @@ def fetch_bitget_ohlcv_auto(symbol, interval="1H", target_len=1000, page_limit=1
     return combined[["timestamp","open","high","low","close","volume"]]
 
 # === ML Training ===
-def train_ml():
+def train_ml(skip_grid_search=False, max_samples=None):
     if os.path.exists(DATASET_PATH):
         print(yellow("Lade vorhandenes Dataset..."))
         df = load_dataset(DATASET_PATH)
@@ -455,6 +455,8 @@ def train_ml():
     print(f"{blue('Gesamtanzahl Datenpunkte:')} {len(df)}")
     df = make_features(df)
     df_valid = df[~df['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
+    if max_samples is not None and len(df_valid) > max_samples:
+        df_valid = df_valid.sample(max_samples, random_state=42).reset_index(drop=True)
     print(f"{blue('Nach Filterung gültige Datenpunkte:')} {len(df_valid)}")
     features = [f for f in FEATURES_BASE if f in df_valid.columns]
     X = df_valid[features]
@@ -468,12 +470,15 @@ def train_ml():
     }
 
     base_model = RandomForestClassifier(random_state=42)
-    grid = GridSearchCV(base_model, param_grid, cv=3, n_jobs=-1)
-    print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
-    grid.fit(X_train, y_train)
-    print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {grid.best_params_}"))
+    if skip_grid_search:
+        best_params = {"n_estimators": 200, "max_depth": None, "class_weight": None}
+    else:
+        grid = GridSearchCV(base_model, param_grid, cv=3, n_jobs=-1)
+        print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
+        grid.fit(X_train, y_train)
+        print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {grid.best_params_}"))
+        best_params = grid.best_params_
 
-    best_params = grid.best_params_
     model = RandomForestClassifier(**best_params, random_state=42)
     print(yellow("Trainiere finales Modell..."))
     model.fit(X_train, y_train)
@@ -822,11 +827,13 @@ def main():
     parser = argparse.ArgumentParser(description="Elliott Wave ML")
     parser.add_argument("--model-path", default=MODEL_PATH, help="Pfad zum Modell")
     parser.add_argument("--dataset-path", default=DATASET_PATH, help="Pfad zum Dataset")
+    parser.add_argument("--skip-grid-search", action="store_true", help="GridSearch überspringen")
+    parser.add_argument("--max-samples", type=int, default=None, help="Maximale Anzahl Trainingssamples")
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
     DATASET_PATH = args.dataset_path
-
+    
     if os.path.exists(MODEL_PATH):
         print(yellow("Lade gespeichertes Modell..."))
         model = load_model(MODEL_PATH)
@@ -839,7 +846,7 @@ def main():
             features = FEATURES_BASE
         importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
     else:
-        model, features, importance = train_ml()
+        model, features, importance = train_ml(skip_grid_search=args.skip_grid_search, max_samples=args.max_samples)
     run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN)
 
 if __name__ == "__main__":
