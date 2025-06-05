@@ -835,7 +835,30 @@ def get_next_wave(current_wave):
     except Exception:
         return None
 
-def elliott_target(df_features, current_wave, last_complete_close, levels=None):
+def elliott_target(
+    df_features,
+    current_wave,
+    last_complete_close,
+    levels=None,
+    level_tolerance=0.001,
+):
+    """Return projected target price for an Elliott wave segment.
+
+    Parameters
+    ----------
+    df_features : DataFrame
+        Feature dataframe containing OHLC data.
+    current_wave : str
+        Wave label to project the target for.
+    last_complete_close : float
+        Last closing price of the previously completed candle.
+    levels : list[dict], optional
+        Pre-computed price levels used to snap the target.
+    level_tolerance : float, optional
+        Tolerance as a fraction of ``wave_start_price`` used when snapping to
+        nearby levels. If the nearest level differs from ``wave_start_price`` by
+        less than this tolerance, the original target is kept.
+    """
     idx = lambda wave: _latest_segment_indices(df_features, wave)
     start_idx = idx(current_wave)
     wave_start_price = (
@@ -932,7 +955,13 @@ def elliott_target(df_features, current_wave, last_complete_close, levels=None):
         prices = [lvl["price"] for lvl in levels]
         if prices:
             nearest = min(prices, key=lambda p: abs(p - target))
-            target = nearest
+            # Only snap to the nearest level when it differs from the
+            # wave's start by more than the tolerance. This avoids
+            # returning a target equal to the wave's start unless the
+            # level is meaningfully different.
+            tolerance = abs(wave_start_price) * level_tolerance
+            if abs(nearest - wave_start_price) >= tolerance:
+                target = nearest
 
     return target, wave_start_price, last_wave_close
 
