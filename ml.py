@@ -26,14 +26,47 @@ DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
 CONFIDENCE_THRESHOLD = 0.3
 
 FEATURES_BASE = [
-    "returns","range","body","ma_diff","vol_ratio","fibo_level",
-    "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
-    "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
-    "ema_ratio","bb_width","roc_10",
-    "corr_close_vol_10","slope_5","trend_len","vol_atr_ratio",
-    "rsi_4h","close_4h","vol_4h","pattern_confidence",
-    "pos_in_pattern","prev_wave_code","next_wave_code","level_dist",
-    "fib_dist_1d","fib_near_1d","fib_dist_1w","fib_near_1w"
+    "returns",
+    "range",
+    "body",
+    "ma_diff",
+    "vol_ratio",
+    "fibo_level",
+    "wave_len_ratio",
+    "rsi_z",
+    "macd",
+    "macd_signal",
+    "stoch_k",
+    "stoch_d",
+    "obv",
+    "atr",
+    "kvo",
+    "kvo_signal",
+    "cmf",
+    "high_z",
+    "low_z",
+    "vol_z",
+    "ema_ratio",
+    "bb_width",
+    "roc_10",
+    "corr_close_vol_10",
+    "slope_5",
+    "trend_len",
+    "vol_atr_ratio",
+    "rsi_4h",
+    "close_4h",
+    "vol_4h",
+    "pattern_confidence",
+    "pos_in_pattern",
+    "prev_wave_code",
+    "next_wave_code",
+    "level_dist",
+    "fib_dist_1d",
+    "fib_near_1d",
+    "fib_dist_1w",
+    "fib_near_1w",
+    "wave_fib_dist",
+    "wave_fib_near",
 ]
 
 def save_model(model, path):
@@ -566,6 +599,79 @@ def synthetic_subwaves(df, minlen=4, maxlen=9):
     df['subwave'] = subwave_id[:len(df)]
     return df
 
+def compute_wave_fibs(df, label_col='wave_pred', buffer=PUFFER):
+    """Add fibonacci levels per wave segment to ``df``.
+
+    Parameters
+    ----------
+    df : DataFrame
+        OHLCV data with wave labels/predictions.
+    label_col : str, optional
+        Column containing wave identifiers.
+    buffer : float, optional
+        Tolerance for the ``wave_fib_near`` flag.
+    """
+    if label_col not in df.columns:
+        return df
+
+    fib_ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.618, 2.618]
+    labels = df[label_col].astype(str).unique()
+    for w in labels:
+        for r in fib_ratios:
+            df[f"fib_{w}_{r}"] = np.nan
+
+    df['wave_fib_dist'] = np.nan
+    df['wave_fib_near'] = np.nan
+
+    start = 0
+    cur = df[label_col].iloc[0]
+    for i in range(1, len(df) + 1):
+        if i == len(df) or df[label_col].iloc[i] != cur:
+            end = i - 1
+            start_price = df['close'].iloc[start]
+            end_price = df['close'].iloc[end]
+            if end_price >= start_price:
+                diff = end_price - start_price
+                fibs = {
+                    0.0: end_price,
+                    0.236: end_price - diff * 0.236,
+                    0.382: end_price - diff * 0.382,
+                    0.5: end_price - diff * 0.5,
+                    0.618: end_price - diff * 0.618,
+                    0.786: end_price - diff * 0.786,
+                    1.0: start_price,
+                    1.618: start_price - diff * 0.618,
+                    2.618: start_price - diff * 1.618,
+                }
+            else:
+                diff = start_price - end_price
+                fibs = {
+                    0.0: end_price,
+                    0.236: end_price + diff * 0.236,
+                    0.382: end_price + diff * 0.382,
+                    0.5: end_price + diff * 0.5,
+                    0.618: end_price + diff * 0.618,
+                    0.786: end_price + diff * 0.786,
+                    1.0: start_price,
+                    1.618: start_price + diff * 0.618,
+                    2.618: start_price + diff * 1.618,
+                }
+
+            for r, val in fibs.items():
+                df.loc[start:end, f"fib_{cur}_{r}"] = val
+
+            closes = df['close'].iloc[start:end + 1]
+            dists = pd.DataFrame({k: (closes - v).abs() for k, v in fibs.items()})
+            min_dist = dists.min(axis=1)
+            df.loc[start:end, 'wave_fib_dist'] = min_dist / closes
+            df.loc[start:end, 'wave_fib_near'] = (min_dist / closes <= buffer).astype(int)
+
+            start = i
+            if i < len(df):
+                cur = df[label_col].iloc[i]
+
+    return df
+
 # === Feature Engineering mit 4H-Integration ===
 def make_features(df, df_4h=None, levels=None, fib_levels=None):
     df = df.copy()
@@ -645,6 +751,13 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
         df['rsi_4h'] = np.interp(df.index, np.linspace(0, len(df)-1, len(df_4h)), df_4h['rsi_4h'])
         df['close_4h'] = np.interp(df.index, np.linspace(0, len(df)-1, len(df_4h)), df_4h['close'])
         df['vol_4h'] = np.interp(df.index, np.linspace(0, len(df)-1, len(df_4h)), df_4h['volume'])
+
+    # Local fib levels for actual or predicted waves
+    if 'wave' in df.columns:
+        df = compute_wave_fibs(df, 'wave', buffer=PUFFER)
+    elif 'wave_pred' in df.columns:
+        df = compute_wave_fibs(df, 'wave_pred', buffer=PUFFER)
+
     df = df.dropna().reset_index(drop=True)
     return df
 
@@ -1044,8 +1157,16 @@ def suggest_trade(
         tp = target
         sl = entry * (1 + adj_risk + sl_puffer)
 
-    if levels:
-        prices = [lvl["price"] for lvl in levels]
+    local_cols = [c for c in df.columns if c.startswith(f"fib_{current_wave}_")]
+    local_prices = []
+    if local_cols:
+        local_prices = df.iloc[-1][local_cols].dropna().tolist()
+
+    if levels or local_prices:
+        prices = []
+        if levels:
+            prices.extend([lvl["price"] for lvl in levels])
+        prices.extend(local_prices)
         if prices:
             tp = min(prices, key=lambda p: abs(p - tp))
             entry = min(prices, key=lambda p: abs(p - entry))
@@ -1099,6 +1220,7 @@ def run_pattern_analysis(df, model, features, levels=None):
     classes = [str(c) for c in model.classes_]
     results = []
     df_feat["wave_pred"] = preds
+    df_feat = compute_wave_fibs(df_feat, 'wave_pred', buffer=PUFFER)
     for i, row in df_feat.iterrows():
         wave = str(row["wave_pred"])
         prob = proba[i, classes.index(wave)] if wave in classes else 0.0
@@ -1188,6 +1310,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     classes = [str(c) for c in model.classes_]
     df_features["wave_pred_raw"] = pred_raw
     df_features["wave_pred"] = pred
+    df_features = compute_wave_fibs(df_features, 'wave_pred', buffer=PUFFER)
     proba_row = pred_proba[-1]
     current_wave = df_features["wave_pred"].iloc[-1]
     main_wave = str(pred[-1])
