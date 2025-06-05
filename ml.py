@@ -127,8 +127,10 @@ def calc_rsi(series, period=14):
     delta = series.diff()
     gain = np.where(delta > 0, delta, 0)
     loss = np.where(delta > 0, 0, -delta)
-    avg_gain = pd.Series(gain).rolling(window=period, min_periods=period).mean()
-    avg_loss = pd.Series(loss).rolling(window=period, min_periods=period).mean()
+    gain_series = pd.Series(gain, index=series.index)
+    loss_series = pd.Series(loss, index=series.index)
+    avg_gain = gain_series.rolling(window=period, min_periods=period).mean()
+    avg_loss = loss_series.rolling(window=period, min_periods=period).mean()
     rs = avg_gain / (avg_loss + 1e-8)
     return 100 - (100 / (1 + rs))
 
