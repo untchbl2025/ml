@@ -1224,8 +1224,12 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     # === Trade-Setup Output ===
     trade_wave = str(next_wave) if next_target else str(current_wave)
     trade_target = next_target if next_target else target
-    trade_wave_idx = classes.index(trade_wave)
-    trade_prob = proba_row[trade_wave_idx]
+    if trade_wave in classes:
+        trade_wave_idx = classes.index(trade_wave)
+        trade_prob = proba_row[trade_wave_idx]
+    else:
+        print(yellow(f"Unbekannte Trade-Welle {trade_wave} – Wahrscheinlichkeit auf 0 gesetzt."))
+        trade_prob = 0.0
     direction, sl, tp, entry = suggest_trade(
         df_features,
         trade_wave,
