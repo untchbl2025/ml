@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import requests
+from levels import get_all_levels
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, cross_val_score
 from sklearn.feature_selection import RFECV
@@ -674,7 +675,9 @@ def train_ml(skip_grid_search=False, max_samples=None, model_type="rf", feature_
         save_dataset(df, DATASET_PATH)
 
     print(f"{blue('Gesamtanzahl Datenpunkte:')} {len(df)}")
-    df = make_features(df)
+    df.index = pd.date_range("2020-01-01", periods=len(df), freq="1H")
+    levels = get_all_levels(df, ["2H", "4H", "1D", "1W"])
+    df = make_features(df, levels=levels)
     df_valid = df[~df['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
 
     if max_samples is not None and len(df_valid) > max_samples:
@@ -832,7 +835,7 @@ def get_next_wave(current_wave):
     except Exception:
         return None
 
-def elliott_target(df_features, current_wave, last_complete_close):
+def elliott_target(df_features, current_wave, last_complete_close, levels=None):
     idx = lambda wave: _latest_segment_indices(df_features, wave)
     start_idx = idx(current_wave)
     wave_start_price = (
@@ -842,12 +845,11 @@ def elliott_target(df_features, current_wave, last_complete_close):
         df_features["close"].iloc[start_idx[-1]] if len(start_idx) > 0 else last_complete_close
     )
 
+    target = None
     if str(current_wave) in PATTERN_PROJ_FACTORS:
         target = pattern_target(df_features, str(current_wave), last_complete_close)
-        return target, wave_start_price, last_wave_close
-
-    if str(current_wave) == "1":
-        return wave_start_price * 1.02, wave_start_price, last_wave_close
+    elif str(current_wave) == "1":
+        target = wave_start_price * 1.02
     elif str(current_wave) == "2":
         idx1 = idx("1")
         if len(idx1) > 0:
@@ -856,27 +858,25 @@ def elliott_target(df_features, current_wave, last_complete_close):
             retracement = 0.5
             target = high1 - retracement * (high1 - low2)
             if target >= low2:
-                return None
-            return target, wave_start_price, last_wave_close
+                target = None
         else:
-            return last_complete_close * 0.98, wave_start_price, last_wave_close
+            target = last_complete_close * 0.98
     elif str(current_wave) == "3":
         idx1 = idx("1")
         if len(idx1) > 1 and len(start_idx) > 0:
             w1len = df_features["close"].iloc[idx1[-1]] - df_features["close"].iloc[idx1[0]]
-            return wave_start_price + 1.618 * w1len, wave_start_price, last_wave_close
+            target = wave_start_price + 1.618 * w1len
         else:
-            return last_complete_close * 1.05, wave_start_price, last_wave_close
+            target = last_complete_close * 1.05
     elif str(current_wave) == "4":
         idx3 = idx("3")
         if len(idx3) > 1 and len(start_idx) > 0:
             w3len = df_features["close"].iloc[idx3[-1]] - df_features["close"].iloc[idx3[0]]
             target = wave_start_price - 0.382 * abs(w3len)
             if target >= wave_start_price:
-                return None
-            return target, wave_start_price, last_wave_close
+                target = None
         else:
-            return last_complete_close * 0.98, wave_start_price, last_wave_close
+            target = last_complete_close * 0.98
     elif str(current_wave) == "5":
         idx1 = idx("1")
         idx3 = idx("3")
@@ -887,50 +887,56 @@ def elliott_target(df_features, current_wave, last_complete_close):
                 proj_len = max(w1len, w3len) * 0.618
             else:
                 proj_len = w1len
-            return wave_start_price + proj_len, wave_start_price, last_wave_close
+            target = wave_start_price + proj_len
         else:
-            return last_complete_close * 1.02, wave_start_price, last_wave_close
+            target = last_complete_close * 1.02
     elif str(current_wave) == "A":
         idx5 = idx("5")
         if len(idx5) > 1 and len(start_idx) > 0:
             w5len = df_features["close"].iloc[idx5[-1]] - df_features["close"].iloc[idx5[0]]
             target = wave_start_price - w5len
             if target >= wave_start_price:
-                return None
-            return target, wave_start_price, last_wave_close
+                target = None
         else:
-            return last_complete_close * 0.98, wave_start_price, last_wave_close
+            target = last_complete_close * 0.98
     elif str(current_wave) == "B":
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
             wa = df_features["close"].iloc[idxa[-1]] - df_features["close"].iloc[idxa[0]]
-            return wave_start_price + 0.618 * abs(wa), wave_start_price, last_wave_close
+            target = wave_start_price + 0.618 * abs(wa)
         else:
-            return last_complete_close * 1.01, wave_start_price, last_wave_close
+            target = last_complete_close * 1.01
     elif str(current_wave) == "C":
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
             wa = df_features["close"].iloc[idxa[-1]] - df_features["close"].iloc[idxa[0]]
             target = wave_start_price - 1.0 * abs(wa)
             if target >= wave_start_price:
-                return None
-            return target, wave_start_price, last_wave_close
+                target = None
         else:
-            return last_complete_close * 0.98, wave_start_price, last_wave_close
+            target = last_complete_close * 0.98
     elif str(current_wave) in ["W", "X", "Y", "Z"]:
         idxw = idx("W")
         if len(idxw) > 1 and len(start_idx) > 0:
             wlen = df_features["close"].iloc[idxw[-1]] - df_features["close"].iloc[idxw[0]]
             if str(current_wave) in ["Y", "Z"]:
-                return wave_start_price + 0.618 * wlen, wave_start_price, last_wave_close
+                target = wave_start_price + 0.618 * wlen
             else:
-                return wave_start_price - 0.382 * abs(wlen), wave_start_price, last_wave_close
+                target = wave_start_price - 0.382 * abs(wlen)
         else:
-            return last_complete_close, wave_start_price, last_wave_close
+            target = last_complete_close
     else:
-        return last_complete_close * 1.01, wave_start_price, last_wave_close
+        target = last_complete_close * 1.01
 
-def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone=None, risk=0.01, sl_puffer=0.005):
+    if target is not None and levels:
+        prices = [lvl["price"] for lvl in levels]
+        if prices:
+            nearest = min(prices, key=lambda p: abs(p - target))
+            target = nearest
+
+    return target, wave_start_price, last_wave_close
+
+def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone=None, risk=0.01, sl_puffer=0.005, levels=None):
     entry = last_close
     if target is None:
         print(red("Kein gültiges Kursziel berechnet."))
@@ -944,6 +950,12 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
         direction = "SHORT"
         tp = target
         sl = entry * (1 + risk + sl_puffer)
+
+    if levels:
+        prices = [lvl["price"] for lvl in levels]
+        if prices:
+            tp = min(prices, key=lambda p: abs(p - tp))
+            entry = min(prices, key=lambda p: abs(p - entry))
 
     size = 1000 * risk / abs(entry - sl) if abs(entry - sl) > 0 else 0
     print(
@@ -997,11 +1009,11 @@ def run_pattern_analysis(df, model, features, levels=None):
     for i, row in df_feat.iterrows():
         wave = row["wave_pred"]
         prob = proba[i, classes.index(wave)] if wave in classes else 0.0
-        target, start_price, _ = elliott_target(df_feat.iloc[: i + 1], wave, row["close"])
+        target, start_price, _ = elliott_target(df_feat.iloc[: i + 1], wave, row["close"], levels=levels)
         validity = "valid" if target is not None else "invalid"
         trade = None
         if validity == "valid":
-            direction, sl, tp, entry = suggest_trade(df_feat.iloc[: i + 1], wave, target, row["close"])
+            direction, sl, tp, entry = suggest_trade(df_feat.iloc[: i + 1], wave, target, row["close"], levels=levels)
             trade = {"entry": entry, "sl": sl, "tp": tp, "probability": prob}
         results.append({
             "pattern_type": wave,
@@ -1049,7 +1061,13 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     print(f"Symbol: {symbol} | Intervall: {interval} | Bars: " + " / ".join(parts))
     print(f"Letzter Timestamp: {df_1h['timestamp'].iloc[-1]}")
     last_complete_close = df_1h["close"].iloc[-2]
-    df_features = make_features(df_1h, df_4h)
+
+    levels_base = df_1h.copy()
+    levels_base["timestamp"] = pd.to_datetime(levels_base["timestamp"])
+    levels_base = levels_base.set_index("timestamp")
+    levels = get_all_levels(levels_base, ["2H", "4H", "1D", "1W"])
+
+    df_features = make_features(df_1h, df_4h, levels=levels)
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
     pred_proba = model.predict_proba(df_features[features])
@@ -1100,7 +1118,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
 
     # ==== Zielprojektionen ====
     target, wave_start_price, last_wave_close = elliott_target(
-        df_features, current_wave, last_complete_close
+        df_features, current_wave, last_complete_close, levels=levels
     )
     next_wave = get_next_wave(current_wave)
     if next_wave:
@@ -1108,6 +1126,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             df_features,
             next_wave,
             target if target is not None else last_wave_close,
+            levels=levels,
         )
     else:
         next_target = None
@@ -1120,6 +1139,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             next_target if next_target is not None else (
                 target if target is not None else last_wave_close
             ),
+            levels=levels,
         )
     else:
         next_next_target = None
@@ -1150,7 +1170,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     trade_wave = next_wave if next_target else current_wave
     trade_target = next_target if next_target else target
     direction, sl, tp, entry = suggest_trade(
-        df_features, trade_wave, trade_target, last_complete_close, entry_zone, tp_zone
+        df_features, trade_wave, trade_target, last_complete_close, entry_zone, tp_zone, levels=levels
     )
     if direction is None:
         print(red("Trade-Setup konnte nicht erstellt werden."))
