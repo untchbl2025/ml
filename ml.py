@@ -1299,6 +1299,12 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         levels.extend(fl)
 
     df_features = make_features(df_1h, df_4h, levels=levels, fib_levels=fib_levels)
+
+    # Sicherstellen, dass alle vom Modell erwarteten Features vorhanden sind
+    missing = [f for f in features if f not in df_features.columns]
+    for m in missing:
+        df_features[m] = 0.0
+
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
     pred_proba = model.predict_proba(df_features[features])
