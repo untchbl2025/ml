@@ -615,11 +615,8 @@ def compute_wave_fibs(df, label_col='wave_pred', buffer=PUFFER):
         return df
 
     fib_ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0, 1.618, 2.618]
-    labels = df[label_col].astype(str).unique()
-    for w in labels:
-        for r in fib_ratios:
-            df[f"fib_{w}_{r}"] = np.nan
 
+    df = df.copy()
     df['wave_fib_dist'] = np.nan
     df['wave_fib_near'] = np.nan
 
@@ -658,9 +655,6 @@ def compute_wave_fibs(df, label_col='wave_pred', buffer=PUFFER):
                 }
 
             idx_slice = df.index[start:end + 1]
-            for r, val in fibs.items():
-                df.loc[idx_slice, f"fib_{cur}_{r}"] = val
-
             closes = df['close'].loc[idx_slice]
             dists = pd.DataFrame({k: (closes - v).abs() for k, v in fibs.items()})
             min_dist = dists.min(axis=1)
