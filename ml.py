@@ -2,8 +2,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import requests
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier
+from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, cross_val_score
+from sklearn.feature_selection import RFECV
+from xgboost import XGBClassifier
+from lightgbm import LGBMClassifier
 from scipy.stats import zscore
 from tabulate import tabulate
 import os
@@ -556,7 +559,7 @@ def fetch_bitget_ohlcv_auto(symbol, interval="1H", target_len=1000, page_limit=1
     return combined[["timestamp","open","high","low","close","volume"]]
 
 # === ML Training ===
-def train_ml(skip_grid_search=False, max_samples=None):
+def train_ml(skip_grid_search=False, max_samples=None, model_type="rf", feature_selection=False):
     if os.path.exists(DATASET_PATH):
         print(yellow("Lade vorhandenes Dataset..."))
         df = load_dataset(DATASET_PATH)
@@ -565,46 +568,109 @@ def train_ml(skip_grid_search=False, max_samples=None):
         df = generate_rulebased_synthetic_with_patterns(
             n=TRAIN_N, negative_ratio=0.15, pattern_ratio=0.35)
         save_dataset(df, DATASET_PATH)
+
     print(f"{blue('Gesamtanzahl Datenpunkte:')} {len(df)}")
     df = make_features(df)
     df_valid = df[~df['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
+
     if max_samples is not None and len(df_valid) > max_samples:
         groups = df_valid.groupby('wave')
         per_class = max_samples // len(groups)
         sampled = [g.sample(min(len(g), per_class), random_state=42) for _, g in groups]
         df_valid = pd.concat(sampled).sample(frac=1, random_state=42).reset_index(drop=True)
+
     print(f"{blue('Nach Filterung gültige Datenpunkte:')} {len(df_valid)}")
     features = [f for f in FEATURES_BASE if f in df_valid.columns]
     X = df_valid[features]
-    y = df_valid["wave"].astype(str)
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.22, random_state=43)
+    y = df_valid['wave'].astype(str)
 
-    param_grid = {
-        "n_estimators": [100, 200],
-        "max_depth": [None, 10, 20],
-        "class_weight": [None, "balanced"],
-    }
+    tscv = TimeSeriesSplit(n_splits=5)
 
-    base_model = RandomForestClassifier(random_state=42)
-    if skip_grid_search:
-        best_params = {"n_estimators": 200, "max_depth": None, "class_weight": None}
-    else:
-        grid = GridSearchCV(base_model, param_grid, cv=3, n_jobs=-1)
-        print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
-        grid.fit(X_train, y_train)
-        print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {grid.best_params_}"))
+    def create_model_params(mtype):
+        if mtype == 'rf':
+            base = RandomForestClassifier(random_state=42)
+            grid = {
+                'n_estimators': [100, 200],
+                'max_depth': [None, 10, 20],
+                'class_weight': [None, 'balanced'],
+            }
+            defaults = {'n_estimators': 200, 'max_depth': None, 'class_weight': None}
+        elif mtype == 'xgb':
+            base = XGBClassifier(random_state=42, verbosity=0, eval_metric='logloss')
+            grid = {
+                'n_estimators': [100, 200],
+                'max_depth': [3, 6],
+                'learning_rate': [0.05, 0.1],
+            }
+            defaults = {'n_estimators': 200, 'max_depth': 6, 'learning_rate': 0.1}
+        elif mtype == 'lgbm':
+            base = LGBMClassifier(random_state=42)
+            grid = {
+                'n_estimators': [100, 200],
+                'max_depth': [-1, 10],
+                'learning_rate': [0.05, 0.1],
+            }
+            defaults = {'n_estimators': 200, 'max_depth': -1, 'learning_rate': 0.1}
+        elif mtype == 'voting':
+            rf = RandomForestClassifier(n_estimators=200, random_state=42)
+            xgb = XGBClassifier(n_estimators=200, random_state=42, verbosity=0, eval_metric='logloss')
+            lgb = LGBMClassifier(n_estimators=200, random_state=42)
+            base = VotingClassifier(estimators=[('rf', rf), ('xgb', xgb), ('lgbm', lgb)], voting='soft')
+            grid = None
+            defaults = None
+        else:
+            raise ValueError(f'Unbekannter Modeltyp: {mtype}')
+        return base, grid, defaults
+
+    base_model, param_grid, defaults = create_model_params(model_type)
+
+    if not skip_grid_search and param_grid:
+        grid = GridSearchCV(base_model, param_grid, cv=tscv, n_jobs=-1)
+        print(yellow('Starte GridSearch zur Hyperparameteroptimierung...'))
+        grid.fit(X, y)
         best_params = grid.best_params_
+        print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {best_params}"))
+    else:
+        best_params = defaults or {}
 
-    model = RandomForestClassifier(**best_params, random_state=42)
-    print(yellow("Trainiere finales Modell..."))
-    model.fit(X_train, y_train)
-    train_score = model.score(X_train, y_train)
-    test_score = model.score(X_test, y_test)
-    print(green(f"Training fertig. Genauigkeit (Train): {train_score:.3f} | (Test): {test_score:.3f}"))
+    def instantiate(mtype, params):
+        if mtype == 'rf':
+            return RandomForestClassifier(**params, random_state=42)
+        elif mtype == 'xgb':
+            return XGBClassifier(**params, random_state=42, verbosity=0, eval_metric='logloss')
+        elif mtype == 'lgbm':
+            return LGBMClassifier(**params, random_state=42)
+        elif mtype == 'voting':
+            rf = RandomForestClassifier(n_estimators=params.get('n_estimators', 200), random_state=42)
+            xgb = XGBClassifier(n_estimators=params.get('n_estimators', 200), random_state=42, verbosity=0, eval_metric='logloss')
+            lgb = LGBMClassifier(n_estimators=params.get('n_estimators', 200), random_state=42)
+            return VotingClassifier(estimators=[('rf', rf), ('xgb', xgb), ('lgbm', lgb)], voting='soft')
+
+    model = instantiate(model_type, best_params)
+
+    if feature_selection:
+        selector = RFECV(model, step=1, cv=tscv, n_jobs=-1)
+        print(yellow('Führe Feature Selection mittels RFECV durch...'))
+        selector.fit(X, y)
+        model = selector.estimator_
+        features = [f for f, s in zip(features, selector.support_) if s]
+        X = df_valid[features]
+
+    print(yellow('Trainiere finales Modell...'))
+    model.fit(X, y)
+
+    cv_scores = cross_val_score(model, X, y, cv=tscv, n_jobs=-1)
+    print(green(f"Durchschnittliche CV-Genauigkeit: {cv_scores.mean():.3f} ± {cv_scores.std():.3f}"))
+
+    if hasattr(model, 'feature_importances_'):
+        importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
+    else:
+        importance = pd.Series(np.zeros(len(features)), index=features)
+
     print(f"{blue('Wichtigste ML-Features:')}")
-    importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
     print(importance.head(8).round(3))
-    save_model(model, MODEL_PATH)
+
+    save_model({'model': model, 'features': features}, MODEL_PATH)
     return model, features, importance
 
 # === Fibo-Bereiche für Entry/TP/SL (automatisch, pro Welle) ===
@@ -966,6 +1032,8 @@ def main():
     parser.add_argument("--dataset-path", default=DATASET_PATH, help="Pfad zum Dataset")
     parser.add_argument("--skip-grid-search", action="store_true", help="GridSearch überspringen")
     parser.add_argument("--max-samples", type=int, default=None, help="Maximale Anzahl Trainingssamples")
+    parser.add_argument("--model", choices=["rf", "xgb", "lgbm", "voting"], default="rf", help="Modelltyp")
+    parser.add_argument("--feature-selection", action="store_true", help="RFECV Feature Auswahl nutzen")
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
@@ -973,17 +1041,28 @@ def main():
     
     if os.path.exists(MODEL_PATH):
         print(yellow("Lade gespeichertes Modell..."))
-        model = load_model(MODEL_PATH)
-        if os.path.exists(DATASET_PATH):
-            df_tmp = load_dataset(DATASET_PATH)
-            df_tmp = make_features(df_tmp)
-            df_tmp = df_tmp[~df_tmp['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
-            features = [f for f in FEATURES_BASE if f in df_tmp.columns]
+        obj = load_model(MODEL_PATH)
+        if isinstance(obj, dict) and 'model' in obj:
+            model = obj['model']
+            features = obj.get('features', FEATURES_BASE)
         else:
-            features = FEATURES_BASE
-        importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
+            model = obj
+            if os.path.exists(DATASET_PATH):
+                df_tmp = load_dataset(DATASET_PATH)
+                df_tmp = make_features(df_tmp)
+                df_tmp = df_tmp[~df_tmp['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
+                features = [f for f in FEATURES_BASE if f in df_tmp.columns]
+            else:
+                features = FEATURES_BASE
+        if hasattr(model, 'feature_importances_'):
+            importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
+        else:
+            importance = pd.Series(index=features, dtype=float)
     else:
-        model, features, importance = train_ml(skip_grid_search=args.skip_grid_search, max_samples=args.max_samples)
+        model, features, importance = train_ml(skip_grid_search=args.skip_grid_search,
+                                               max_samples=args.max_samples,
+                                               model_type=args.model,
+                                               feature_selection=args.feature_selection)
     run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN)
 
 if __name__ == "__main__":
