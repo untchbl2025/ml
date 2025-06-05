@@ -24,6 +24,7 @@ FEATURES_BASE = [
     "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
     "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
     "ema_ratio","bb_width","roc_10",
+    "corr_close_vol_10","slope_5","trend_len","vol_atr_ratio",
     "rsi_4h","close_4h","vol_4h"
 ]
 
@@ -149,6 +150,25 @@ def calc_cmf(df, period=20):
     mfv_sum = mfv.rolling(window=period).sum()
     vol_sum = df['volume'].rolling(window=period).sum()
     return mfv_sum / (vol_sum + 1e-8)
+
+def calc_slope(series, window=5):
+    """Rolling slope of the given series using linear regression."""
+    idx = np.arange(window)
+    slopes = []
+    for i in range(len(series)):
+        if i < window - 1:
+            slopes.append(np.nan)
+            continue
+        y = series.iloc[i-window+1:i+1]
+        m, _ = np.polyfit(idx, y, 1)
+        slopes.append(m)
+    return pd.Series(slopes, index=series.index)
+
+def calc_trend_length(series):
+    """Length of consecutive positive/negative returns."""
+    direction = np.sign(series)
+    groups = (direction != direction.shift()).cumsum()
+    return direction.groupby(groups).cumcount() + 1
 
 # === Synthetische Muster & Generatoren ===
 def validate_impulse_elliott(df):
@@ -397,6 +417,7 @@ def make_features(df, df_4h=None):
     df['stoch_k'], df['stoch_d'] = calc_stoch_kd(df)
     df['obv'] = calc_obv(df)
     df['atr'] = calc_atr(df)
+    df['vol_atr_ratio'] = df['volume'] / (df['atr'] + 1e-8)
     df['kvo'], df['kvo_signal'] = calc_klinger(df)
     df['cmf'] = calc_cmf(df)
     df['high_z'] = zscore(df['high'])
@@ -409,6 +430,9 @@ def make_features(df, df_4h=None):
     bb_std = df['close'].rolling(20).std()
     df['bb_width'] = (bb_std * 4) / (bb_mid + 1e-8)
     df['roc_10'] = df['close'].pct_change(10).fillna(0)
+    df['corr_close_vol_10'] = df['close'].rolling(10).corr(df['volume']).fillna(0)
+    df['slope_5'] = calc_slope(df['close'], window=5).bfill()
+    df['trend_len'] = calc_trend_length(df['returns']).bfill()
     if 'subwave' not in df.columns:
         df = synthetic_subwaves(df)
     if df_4h is not None:
