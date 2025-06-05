@@ -65,19 +65,25 @@ PATTERN_PROJ_FACTORS = {
     "WXYXZ": 1.0,
     "WXYXZY": 1.0
 }
+# Mapping der erwarteten Folgewelle gemäß Elliott-Theorie. Manche Pattern
+# können in mehrere Richtungen aufgelöst werden, weshalb hier Listen verwendet
+# werden. "Abschluss" signalisiert das Ende einer Zyklusphase.
 SPECIALPATTERN_NEXTWAVE = {
-    "TRIANGLE": "5",
-    "ZIGZAG": "1",
-    "DOUBLE_ZIGZAG": "1",
-    "FLAT": "1",
-    "RUNNING_FLAT": "1",
-    "EXPANDED_FLAT": "1",
-    "TREND_REVERSAL": "1",
-    "FALSE_BREAKOUT": "1",
-    "GAP_EXTENSION": "1",
-    "WXY": "1",
-    "WXYXZ": "1",
-    "WXYXZY": "1"
+    "1": "2",
+    "2": "3",
+    "3": "4",
+    "4": "5",
+    "5": "A",
+    "A": "B",
+    "B": "C",
+    "C": "1",
+    "FLAT": ["3", "5", "C"],
+    "EXPANDED_FLAT": ["3", "5", "C"],
+    "ZIGZAG": ["B", "3"],
+    "DOUBLE_ZIGZAG": ["C", "5"],
+    "TRIANGLE": ["5", "C"],
+    "WXY": ["Z", "Abschluss"],
+    "WXYXZ": ["Abschluss"]
 }
 LABEL_MAP = {
     "1": "Impulswelle 1",
@@ -839,13 +845,22 @@ def _latest_segment_indices(df, wave_label):
     return splits[-1]
 
 def get_next_wave(current_wave):
-    if current_wave in SPECIALPATTERN_NEXTWAVE:
-        return SPECIALPATTERN_NEXTWAVE[current_wave]
-    order = ['1','2','3','4','5','A','B','C']
+    """Ermittle die nächste erwartete Welle für das gegebene Label."""
+    wave = str(current_wave)
+    if wave in SPECIALPATTERN_NEXTWAVE:
+        nxt = SPECIALPATTERN_NEXTWAVE[wave]
+        if isinstance(nxt, list):
+            if not nxt:
+                return None
+            nxt = nxt[0]
+        if nxt == "Abschluss":
+            return None
+        return nxt
+    order = ['1', '2', '3', '4', '5', 'A', 'B', 'C']
     try:
-        idx = order.index(str(current_wave))
-        if idx+1 < len(order):
-            return order[idx+1]
+        idx = order.index(wave)
+        if idx + 1 < len(order):
+            return order[idx + 1]
         else:
             return None
     except Exception:
