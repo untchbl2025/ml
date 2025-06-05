@@ -1,4 +1,4 @@
-"""Compute Fibonacci retracement levels for a given OHLCV DataFrame."""
+"""Compute Fibonacci retracement and extension levels for an OHLCV DataFrame."""
 from __future__ import annotations
 
 from typing import Dict, List
@@ -24,6 +24,9 @@ def _current_swing(df: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
 def get_fib_levels(df: pd.DataFrame, timeframe: str) -> List[Dict[str, object]]:
     """Return fibonacci levels for the current swing of ``df``.
 
+    Includes common retracement levels between ``fib_0.0`` and ``fib_1.0``
+    as well as the extension levels ``fib_1.618`` and ``fib_2.618``.
+
     Parameters
     ----------
     df : DataFrame
@@ -48,6 +51,8 @@ def get_fib_levels(df: pd.DataFrame, timeframe: str) -> List[Dict[str, object]]:
             'fib_0.618': end_price - diff * 0.618,
             'fib_0.786': end_price - diff * 0.786,
             'fib_1.0': start_price,
+            'fib_1.618': start_price - diff * 0.618,
+            'fib_2.618': start_price - diff * 1.618,
         }
     else:
         diff = start_price - end_price
@@ -59,6 +64,8 @@ def get_fib_levels(df: pd.DataFrame, timeframe: str) -> List[Dict[str, object]]:
             'fib_0.618': end_price + diff * 0.618,
             'fib_0.786': end_price + diff * 0.786,
             'fib_1.0': start_price,
+            'fib_1.618': start_price + diff * 0.618,
+            'fib_2.618': start_price + diff * 1.618,
         }
 
     ts = df.index[-1]
