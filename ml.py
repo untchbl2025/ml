@@ -538,7 +538,14 @@ def make_features(df, df_4h=None):
     return df
 
 # === OHLCV-Import Bitget API ===
-def fetch_bitget_ohlcv_auto(symbol, interval="1H", target_len=1000, page_limit=1000):
+def fetch_bitget_ohlcv_auto(symbol, interval="1H", target_len=1000, page_limit=1000, log=False):
+    if isinstance(interval, (list, tuple, set)):
+        result = {}
+        for iv in interval:
+            result[iv] = fetch_bitget_ohlcv_auto(symbol, iv, target_len=target_len,
+                                                page_limit=page_limit, log=log)
+        return result
+
     all_data = []
     end_time = None
     total = 0
@@ -566,6 +573,8 @@ def fetch_bitget_ohlcv_auto(symbol, interval="1H", target_len=1000, page_limit=1
     combined["volume"] = combined["baseVolume"]
     if len(combined) > target_len:
         combined = combined.iloc[-target_len:].reset_index(drop=True)
+    if log:
+        print(green(f"Loaded {len(combined)} bars for {symbol} {interval}"))
     return combined[["timestamp","open","high","low","close","volume"]]
 
 # === ML Training ===
@@ -892,11 +901,27 @@ def smooth_predictions(pred, window=5):
     return np.array(smoothed)
 
 # === Hauptfunktion für Analyse & Grafik ===
-def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN):
-    df_1h = fetch_bitget_ohlcv_auto(symbol, interval, target_len=livedata_len, page_limit=1000)
-    df_4h = fetch_bitget_ohlcv_auto(symbol, "4H", target_len=800, page_limit=1000)
+def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN, extra_intervals=None):
+    df_1h = fetch_bitget_ohlcv_auto(symbol, interval, target_len=livedata_len, page_limit=1000, log=True)
+    df_4h = fetch_bitget_ohlcv_auto(symbol, "4H", target_len=800, page_limit=1000, log=True)
+    df_2h = df_1d = df_1w = None
+    if extra_intervals:
+        if "2H" in extra_intervals:
+            df_2h = fetch_bitget_ohlcv_auto(symbol, "2H", target_len=800, page_limit=1000, log=True)
+        if "1D" in extra_intervals or "D" in extra_intervals:
+            df_1d = fetch_bitget_ohlcv_auto(symbol, "1D", target_len=400, page_limit=1000, log=True)
+        if "1W" in extra_intervals or "W" in extra_intervals:
+            df_1w = fetch_bitget_ohlcv_auto(symbol, "1W", target_len=200, page_limit=1000, log=True)
     print(bold("\n==== BITGET DATA ===="))
-    print(f"Symbol: {symbol} | Intervall: {interval} | Bars: {len(df_1h)} (1H) / {len(df_4h)} (4H)")
+    parts = [f"{len(df_1h)} (1H)"]
+    if df_2h is not None:
+        parts.append(f"{len(df_2h)} (2H)")
+    parts.append(f"{len(df_4h)} (4H)")
+    if df_1d is not None:
+        parts.append(f"{len(df_1d)} (1D)")
+    if df_1w is not None:
+        parts.append(f"{len(df_1w)} (1W)")
+    print(f"Symbol: {symbol} | Intervall: {interval} | Bars: " + " / ".join(parts))
     print(f"Letzter Timestamp: {df_1h['timestamp'].iloc[-1]}")
     last_complete_close = df_1h["close"].iloc[-2]
     df_features = make_features(df_1h, df_4h)
@@ -1078,7 +1103,8 @@ def main():
                                                max_samples=args.max_samples,
                                                model_type=args.model,
                                                feature_selection=args.feature_selection)
-    run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN)
+    run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN,
+                     extra_intervals=["2H", "4H", "1D", "1W"])
 
 if __name__ == "__main__":
     main()
