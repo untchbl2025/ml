@@ -29,7 +29,8 @@ FEATURES_BASE = [
     "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
     "ema_ratio","bb_width","roc_10",
     "corr_close_vol_10","slope_5","trend_len","vol_atr_ratio",
-    "rsi_4h","close_4h","vol_4h","pattern_confidence"
+    "rsi_4h","close_4h","vol_4h","pattern_confidence",
+    "pos_in_pattern","prev_wave_code","next_wave_code","level_dist"
 ]
 
 def save_model(model, path):
@@ -56,7 +57,10 @@ PATTERN_PROJ_FACTORS = {
     "EXPANDED_FLAT": 1.2,
     "TREND_REVERSAL": 1.0,
     "FALSE_BREAKOUT": 0.8,
-    "GAP_EXTENSION": 1.2
+    "GAP_EXTENSION": 1.2,
+    "WXY": 1.0,
+    "WXYXZ": 1.0,
+    "WXYXZY": 1.0
 }
 SPECIALPATTERN_NEXTWAVE = {
     "TRIANGLE": "5",
@@ -67,7 +71,10 @@ SPECIALPATTERN_NEXTWAVE = {
     "EXPANDED_FLAT": "1",
     "TREND_REVERSAL": "1",
     "FALSE_BREAKOUT": "1",
-    "GAP_EXTENSION": "1"
+    "GAP_EXTENSION": "1",
+    "WXY": "1",
+    "WXYXZ": "1",
+    "WXYXZY": "1"
 }
 LABEL_MAP = {
     "1": "Impulswelle 1",
@@ -87,8 +94,14 @@ LABEL_MAP = {
     "TREND_REVERSAL": "Trend Reversal",
     "FALSE_BREAKOUT": "False Breakout",
     "GAP_EXTENSION": "Gap Extension",
-    "N": "Kein Muster",
+    "W": "W",
     "X": "Zwischenwelle",
+    "Y": "Y",
+    "Z": "Z",
+    "WXY": "Double Three",
+    "WXYXZ": "Triple Three",
+    "WXYXZY": "Complex Triple Three",
+    "N": "Kein Muster",
     "INVALID_WAVE": "Ungültig"
 }
 
@@ -412,6 +425,55 @@ def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+def synthetic_wxy_pattern(length=60, amp=100, noise=3):
+    lw = length // 3
+    lx = length // 6
+    ly = length - lw - lx
+    w = amp + np.cumsum(np.random.normal(amp/lw, noise, lw))
+    x = w[-1] - np.cumsum(np.abs(np.random.normal(amp/lx, noise, lx)))
+    y = x[-1] + np.cumsum(np.random.normal(amp/ly, noise, ly))
+    prices = np.concatenate([w, x, y])
+    labels = ['W']*lw + ['X']*lx + ['Y']*ly
+    df = pd.DataFrame({'close': prices, 'wave': labels})
+    df['open'] = df['close'].shift(1).fillna(df['close'][0])
+    df['high'] = np.maximum(df['open'], df['close']) + np.random.uniform(0,1,len(df))
+    df['low'] = np.minimum(df['open'], df['close']) - np.random.uniform(0,1,len(df))
+    df['volume'] = np.random.uniform(100,1000,len(df))
+    return df
+
+def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
+    seg = length // 5
+    w = amp + np.cumsum(np.random.normal(amp/seg*2, noise, seg*2))
+    x1 = w[-1] - np.cumsum(np.abs(np.random.normal(amp/seg, noise, seg)))
+    y = x1[-1] + np.cumsum(np.random.normal(amp/seg, noise, seg))
+    x2 = y[-1] - np.cumsum(np.abs(np.random.normal(amp/(length-seg*4), noise, seg//2)))
+    z = x2[-1] + np.cumsum(np.random.normal(amp/(length-seg*4), noise, length - seg*4 - seg//2))
+    prices = np.concatenate([w, x1, y, x2, z])
+    labels = ['W']*(seg*2) + ['X']*seg + ['Y']*seg + ['X']*(seg//2) + ['Z']*(length - seg*4 - seg//2)
+    df = pd.DataFrame({'close': prices, 'wave': labels})
+    df['open'] = df['close'].shift(1).fillna(df['close'][0])
+    df['high'] = np.maximum(df['open'], df['close']) + np.random.uniform(0,1,len(df))
+    df['low'] = np.minimum(df['open'], df['close']) - np.random.uniform(0,1,len(df))
+    df['volume'] = np.random.uniform(100,1000,len(df))
+    return df
+
+def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
+    seg = length // 6
+    w = amp + np.cumsum(np.random.normal(amp/seg, noise, seg))
+    x1 = w[-1] - np.cumsum(np.abs(np.random.normal(amp/seg, noise, seg)))
+    y1 = x1[-1] + np.cumsum(np.random.normal(amp/seg, noise, seg))
+    x2 = y1[-1] - np.cumsum(np.abs(np.random.normal(amp/seg, noise, seg)))
+    z = x2[-1] + np.cumsum(np.random.normal(amp/seg, noise, seg))
+    y2 = z[-1] - np.cumsum(np.abs(np.random.normal(amp/seg, noise, length - seg*5)))
+    prices = np.concatenate([w, x1, y1, x2, z, y2])
+    labels = ['W']*seg + ['X']*seg + ['Y']*seg + ['X']*seg + ['Z']*seg + ['Y']*(length - seg*5)
+    df = pd.DataFrame({'close': prices, 'wave': labels})
+    df['open'] = df['close'].shift(1).fillna(df['close'][0])
+    df['high'] = np.maximum(df['open'], df['close']) + np.random.uniform(0,1,len(df))
+    df['low'] = np.minimum(df['open'], df['close']) - np.random.uniform(0,1,len(df))
+    df['volume'] = np.random.uniform(100,1000,len(df))
+    return df
+
 def generate_negative_samples(length=100, amp=100, noise=20, outlier_chance=0.1, gap_chance=0.1):
     prices = amp + np.cumsum(np.random.normal(0, noise, length))
     for i in range(1, length):
@@ -450,6 +512,9 @@ def generate_rulebased_synthetic_with_patterns(n=1000, negative_ratio=0.15, patt
         synthetic_trend_reversal_pattern,
         synthetic_false_breakout_pattern,
         synthetic_gap_extension_pattern,
+        synthetic_wxy_pattern,
+        synthetic_wxyxz_pattern,
+        synthetic_wxyxzy_pattern,
     ]
     for _ in range(num_pattern):
         segs = []
@@ -491,7 +556,7 @@ def synthetic_subwaves(df, minlen=4, maxlen=9):
     return df
 
 # === Feature Engineering mit 4H-Integration ===
-def make_features(df, df_4h=None):
+def make_features(df, df_4h=None, levels=None):
     df = df.copy()
     df['returns'] = df['close'].pct_change().fillna(0)
     df['range'] = (df['high'] - df['low']) / df['close']
@@ -529,6 +594,26 @@ def make_features(df, df_4h=None):
     df['pattern_confidence'] = calc_pattern_confidence(df['close'])
     if 'subwave' not in df.columns:
         df = synthetic_subwaves(df)
+    if 'wave' in df.columns:
+        idx = df.groupby('wave').cumcount()
+        total = df.groupby('wave')['wave'].transform('count').replace(0,1)
+        df['pos_in_pattern'] = idx / total
+        df['prev_wave'] = df['wave'].shift(1).fillna('START')
+        df['next_wave'] = df['wave'].shift(-1).fillna('END')
+        df['prev_wave_code'] = pd.Categorical(df['prev_wave']).codes
+        df['next_wave_code'] = pd.Categorical(df['next_wave']).codes
+    else:
+        df['pos_in_pattern'] = 0.0
+        df['prev_wave_code'] = 0
+        df['next_wave_code'] = 0
+    if levels is not None:
+        level_prices = np.array([lvl['price'] for lvl in levels])
+        if len(level_prices):
+            df['level_dist'] = df['close'].apply(lambda x: np.min(np.abs(level_prices - x)))
+        else:
+            df['level_dist'] = 0.0
+    else:
+        df['level_dist'] = 0.0
     if df_4h is not None:
         df_4h['rsi_4h'] = calc_rsi(df_4h['close'], period=14).bfill()
         df['rsi_4h'] = np.interp(df.index, np.linspace(0, len(df)-1, len(df_4h)), df_4h['rsi_4h'])
@@ -715,6 +800,11 @@ def pattern_target(df_features, current_pattern, last_complete_close):
     if not len(idx_pattern):
         return last_complete_close * 1.01
     close_last = df_features["close"].iloc[idx_pattern[-1]]
+    if current_pattern in ["WXY", "WXYXZ", "WXYXZY"]:
+        w_idx = _latest_segment_indices(df_features, "W")
+        if len(w_idx) > 1:
+            w_len = df_features["close"].iloc[w_idx[-1]] - df_features["close"].iloc[w_idx[0]]
+            return close_last + 0.8 * w_len
     factor = PATTERN_PROJ_FACTORS.get(current_pattern, 1.0)
     high = df_features["high"].iloc[idx_pattern].max()
     low  = df_features["low"].iloc[idx_pattern].min()
@@ -827,6 +917,16 @@ def elliott_target(df_features, current_wave, last_complete_close):
             return target, wave_start_price, last_wave_close
         else:
             return last_complete_close * 0.98, wave_start_price, last_wave_close
+    elif str(current_wave) in ["W", "X", "Y", "Z"]:
+        idxw = idx("W")
+        if len(idxw) > 1 and len(start_idx) > 0:
+            wlen = df_features["close"].iloc[idxw[-1]] - df_features["close"].iloc[idxw[0]]
+            if str(current_wave) in ["Y", "Z"]:
+                return wave_start_price + 0.618 * wlen, wave_start_price, last_wave_close
+            else:
+                return wave_start_price - 0.382 * abs(wlen), wave_start_price, last_wave_close
+        else:
+            return last_complete_close, wave_start_price, last_wave_close
     else:
         return last_complete_close * 1.01, wave_start_price, last_wave_close
 
@@ -886,6 +986,31 @@ def evaluate_wave_structure(df, label_col="wave_pred"):
             last_idx = idx
     print(green("Wellenreihenfolge scheint konsistent."))
     return True
+
+def run_pattern_analysis(df, model, features, levels=None):
+    df_feat = make_features(df, levels=levels)
+    preds = model.predict(df_feat[features])
+    proba = model.predict_proba(df_feat[features])
+    classes = list(model.classes_)
+    results = []
+    df_feat["wave_pred"] = preds
+    for i, row in df_feat.iterrows():
+        wave = row["wave_pred"]
+        prob = proba[i, classes.index(wave)] if wave in classes else 0.0
+        target, start_price, _ = elliott_target(df_feat.iloc[: i + 1], wave, row["close"])
+        validity = "valid" if target is not None else "invalid"
+        trade = None
+        if validity == "valid":
+            direction, sl, tp, entry = suggest_trade(df_feat.iloc[: i + 1], wave, target, row["close"])
+            trade = {"entry": entry, "sl": sl, "tp": tp, "probability": prob}
+        results.append({
+            "pattern_type": wave,
+            "wave_id": wave,
+            "target_projection": {"level": None, "price": target, "pattern": wave, "probability": prob},
+            "tradesetup": trade,
+            "validity": validity,
+        })
+    return results
 
 # === Prediction Smoothing ===
 def smooth_predictions(pred, window=5):
