@@ -809,14 +809,27 @@ def get_fibo_zones(df, wave, side="LONG"):
         return None, None
     start, end = idx[0], idx[-1]
     price_start = df['close'].iloc[start]
-    price_end   = df['close'].iloc[end]
+    price_end = df['close'].iloc[end]
     diff = price_end - price_start
-    if side == "LONG":
-        entry_zone = [price_start + diff * 0.236, price_start + diff * 0.382]
-        tp_zone    = [price_start + diff * 0.618, price_start + diff * 1.0]
+
+    # Determine actual direction by diff sign
+    direction = "LONG" if diff >= 0 else "SHORT"
+    diff = abs(diff)
+
+    if direction == "LONG":
+        e1 = price_start + diff * 0.236
+        e2 = price_start + diff * 0.382
+        t1 = price_start + diff * 0.618
+        t2 = price_start + diff * 1.0
     else:
-        entry_zone = [price_start - diff * 0.236, price_start - diff * 0.382]
-        tp_zone    = [price_start - diff * 0.618, price_start - diff * 1.0]
+        e1 = price_start - diff * 0.236
+        e2 = price_start - diff * 0.382
+        t1 = price_start - diff * 0.618
+        t2 = price_start - diff * 1.0
+
+    # Expand zones using PUFFER
+    entry_zone = [min(e1, e2) * (1 - PUFFER), max(e1, e2) * (1 + PUFFER)]
+    tp_zone = [min(t1, t2) * (1 - PUFFER), max(t1, t2) * (1 + PUFFER)]
     return entry_zone, tp_zone
 
 # === Zielprojektionen / Pattern-Targets ===
