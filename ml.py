@@ -657,14 +657,15 @@ def compute_wave_fibs(df, label_col='wave_pred', buffer=PUFFER):
                     2.618: start_price + diff * 1.618,
                 }
 
+            idx_slice = df.index[start:end + 1]
             for r, val in fibs.items():
-                df.loc[start:end, f"fib_{cur}_{r}"] = val
+                df.loc[idx_slice, f"fib_{cur}_{r}"] = val
 
-            closes = df['close'].iloc[start:end + 1]
+            closes = df['close'].loc[idx_slice]
             dists = pd.DataFrame({k: (closes - v).abs() for k, v in fibs.items()})
             min_dist = dists.min(axis=1)
-            df.loc[start:end, 'wave_fib_dist'] = min_dist / closes
-            df.loc[start:end, 'wave_fib_near'] = (min_dist / closes <= buffer).astype(int)
+            df.loc[idx_slice, 'wave_fib_dist'] = min_dist / closes
+            df.loc[idx_slice, 'wave_fib_near'] = (min_dist / closes <= buffer).astype(int)
 
             start = i
             if i < len(df):
