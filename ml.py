@@ -3,6 +3,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 from levels import get_all_levels
+from fib_levels import get_fib_levels
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, cross_val_score
 from sklearn.feature_selection import RFECV
@@ -31,7 +32,8 @@ FEATURES_BASE = [
     "ema_ratio","bb_width","roc_10",
     "corr_close_vol_10","slope_5","trend_len","vol_atr_ratio",
     "rsi_4h","close_4h","vol_4h","pattern_confidence",
-    "pos_in_pattern","prev_wave_code","next_wave_code","level_dist"
+    "pos_in_pattern","prev_wave_code","next_wave_code","level_dist",
+    "fib_dist_1d","fib_near_1d","fib_dist_1w","fib_near_1w"
 ]
 
 def save_model(model, path):
@@ -559,7 +561,7 @@ def synthetic_subwaves(df, minlen=4, maxlen=9):
     return df
 
 # === Feature Engineering mit 4H-Integration ===
-def make_features(df, df_4h=None, levels=None):
+def make_features(df, df_4h=None, levels=None, fib_levels=None):
     df = df.copy()
     df['returns'] = df['close'].pct_change().fillna(0)
     df['range'] = (df['high'] - df['low']) / df['close']
@@ -617,6 +619,21 @@ def make_features(df, df_4h=None, levels=None):
             df['level_dist'] = 0.0
     else:
         df['level_dist'] = 0.0
+
+    if fib_levels is not None:
+        for tf, fibs in fib_levels.items():
+            prices = np.array([f['price'] for f in fibs])
+            if len(prices):
+                dist = df['close'].apply(lambda x: np.min(np.abs(prices - x)) / x)
+                df[f'fib_dist_{tf.lower()}'] = dist
+                df[f'fib_near_{tf.lower()}'] = (dist <= 0.003).astype(int)
+            else:
+                df[f'fib_dist_{tf.lower()}'] = 1.0
+                df[f'fib_near_{tf.lower()}'] = 0
+    else:
+        for tf in ['1d', '1w']:
+            df[f'fib_dist_{tf}'] = 1.0
+            df[f'fib_near_{tf}'] = 0
     if df_4h is not None:
         df_4h['rsi_4h'] = calc_rsi(df_4h['close'], period=14).bfill()
         df['rsi_4h'] = np.interp(df.index, np.linspace(0, len(df)-1, len(df_4h)), df_4h['rsi_4h'])
@@ -1122,7 +1139,21 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     levels_base = levels_base.set_index("timestamp")
     levels = get_all_levels(levels_base, ["2H", "4H", "1D", "1W"])
 
-    df_features = make_features(df_1h, df_4h, levels=levels)
+    fib_levels = {}
+    if df_1d is not None:
+        tmp = df_1d.copy()
+        tmp["timestamp"] = pd.to_datetime(tmp["timestamp"])
+        tmp = tmp.set_index("timestamp")
+        fib_levels["1D"] = get_fib_levels(tmp, "1D")
+    if df_1w is not None:
+        tmp = df_1w.copy()
+        tmp["timestamp"] = pd.to_datetime(tmp["timestamp"])
+        tmp = tmp.set_index("timestamp")
+        fib_levels["1W"] = get_fib_levels(tmp, "1W")
+    for fl in fib_levels.values():
+        levels.extend(fl)
+
+    df_features = make_features(df_1h, df_4h, levels=levels, fib_levels=fib_levels)
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
     pred_proba = model.predict_proba(df_features[features])
@@ -1230,6 +1261,14 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     else:
         print(yellow(f"Unbekannte Trade-Welle {trade_wave} – Wahrscheinlichkeit auf 0 gesetzt."))
         trade_prob = 0.0
+
+    fib_near = max(df_features.get('fib_near_1d', pd.Series([0])).iloc[-1],
+                   df_features.get('fib_near_1w', pd.Series([0])).iloc[-1])
+    naked_near = int(df_features['level_dist'].iloc[-1] / df_features['close'].iloc[-1] <= 0.003)
+    prob_weight = (1 + 0.5 * fib_near) * (1 + 0.5 * naked_near)
+    trade_prob *= prob_weight
+    entry_exit_score = pattern_conf * prob_weight
+    print(bold(f"Entry/Exit-Score: {entry_exit_score:.2f}"))
     direction, sl, tp, entry = suggest_trade(
         df_features,
         trade_wave,
