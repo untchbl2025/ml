@@ -776,9 +776,6 @@ def train_ml(skip_grid_search=False, max_samples=None, model_type="rf", feature_
     else:
         importance = pd.Series(np.zeros(len(features)), index=features)
 
-    print(f"{blue('Wichtigste ML-Features:')}")
-    print(importance.head(8).round(3))
-
     save_model({'model': model, 'features': features}, MODEL_PATH)
     return model, features, importance
 
@@ -1054,11 +1051,11 @@ def run_pattern_analysis(df, model, features, levels=None):
     df_feat = make_features(df, levels=levels)
     preds = model.predict(df_feat[features])
     proba = model.predict_proba(df_feat[features])
-    classes = list(model.classes_)
+    classes = [str(c) for c in model.classes_]
     results = []
     df_feat["wave_pred"] = preds
     for i, row in df_feat.iterrows():
-        wave = row["wave_pred"]
+        wave = str(row["wave_pred"])
         prob = proba[i, classes.index(wave)] if wave in classes else 0.0
         target, start_price, _ = elliott_target(df_feat.iloc[: i + 1], wave, row["close"], levels=levels)
         validity = "valid" if target is not None else "invalid"
@@ -1129,13 +1126,13 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
     pred_proba = model.predict_proba(df_features[features])
-    classes = model.classes_
+    classes = [str(c) for c in model.classes_]
     df_features["wave_pred_raw"] = pred_raw
     df_features["wave_pred"] = pred
     proba_row = pred_proba[-1]
     current_wave = df_features["wave_pred"].iloc[-1]
-    main_wave = pred[-1]
-    main_wave_idx = list(classes).index(main_wave)
+    main_wave = str(pred[-1])
+    main_wave_idx = classes.index(main_wave)
     main_wave_prob = proba_row[main_wave_idx]
     alt_wave, alt_prob = None, None
     if current_wave in ["N", "INVALID_WAVE", "X"]:
@@ -1225,9 +1222,9 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         breakout_zone = (low, high)
 
     # === Trade-Setup Output ===
-    trade_wave = next_wave if next_target else current_wave
+    trade_wave = str(next_wave) if next_target else str(current_wave)
     trade_target = next_target if next_target else target
-    trade_wave_idx = list(classes).index(trade_wave)
+    trade_wave_idx = classes.index(trade_wave)
     trade_prob = proba_row[trade_wave_idx]
     direction, sl, tp, entry = suggest_trade(
         df_features,
