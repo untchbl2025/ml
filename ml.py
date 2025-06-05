@@ -21,6 +21,7 @@ PUFFER = 0.02
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
 DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
+CONFIDENCE_THRESHOLD = 0.3
 
 FEATURES_BASE = [
     "returns","range","body","ma_diff","vol_ratio","fibo_level",
@@ -28,7 +29,7 @@ FEATURES_BASE = [
     "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
     "ema_ratio","bb_width","roc_10",
     "corr_close_vol_10","slope_5","trend_len","vol_atr_ratio",
-    "rsi_4h","close_4h","vol_4h"
+    "rsi_4h","close_4h","vol_4h","pattern_confidence"
 ]
 
 def save_model(model, path):
@@ -181,6 +182,14 @@ def calc_trend_length(series):
     direction = np.sign(series)
     groups = (direction != direction.shift()).cumsum()
     return direction.groupby(groups).cumcount() + 1
+
+def calc_pattern_confidence(series, window=10):
+    """Estimate cleanliness of a price series (0-1)."""
+    smoothed = series.rolling(window).mean()
+    deviation = (series - smoothed).abs().rolling(window).mean()
+    amplitude = series.rolling(window).max() - series.rolling(window).min()
+    score = 1 - deviation / (amplitude + 1e-8)
+    return score.clip(lower=0, upper=1).bfill()
 
 # === Synthetische Muster & Generatoren ===
 def validate_impulse_elliott(df):
@@ -517,6 +526,7 @@ def make_features(df, df_4h=None):
     df['corr_close_vol_10'] = df['close'].rolling(10).corr(df['volume']).fillna(0)
     df['slope_5'] = calc_slope(df['close'], window=5).bfill()
     df['trend_len'] = calc_trend_length(df['returns']).bfill()
+    df['pattern_confidence'] = calc_pattern_confidence(df['close'])
     if 'subwave' not in df.columns:
         df = synthetic_subwaves(df)
     if df_4h is not None:
@@ -925,6 +935,11 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
         idx = prob_sorted_idx[i]
         label = classes[idx]
         print(f"  {LABEL_MAP.get(label,label)}: {proba_row[idx]*100:.1f}%")
+
+    pattern_conf = df_features['pattern_confidence'].iloc[-1]
+    if pattern_conf < CONFIDENCE_THRESHOLD:
+        print(red(f"Muster-Konfidenz zu niedrig ({pattern_conf:.2f} < {CONFIDENCE_THRESHOLD}) - Trade-Setup übersprungen."))
+        return
 
     # ==== Fibo-Zonen berechnen (nicht ausgeben) ====
     entry_zone, tp_zone = get_fibo_zones(
