@@ -965,20 +965,40 @@ def elliott_target(
 
     return target, wave_start_price, last_wave_close
 
-def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone=None, risk=0.01, sl_puffer=0.005, levels=None):
+def suggest_trade(
+    df,
+    current_wave,
+    target,
+    last_close,
+    entry_zone=None,
+    tp_zone=None,
+    risk=0.01,
+    sl_puffer=0.005,
+    levels=None,
+    probability=None,
+):
+    """Suggest trade parameters for the given wave.
+
+    When ``probability`` is provided, the risk (and thus resulting SL/TP and
+    position size) is scaled by this value to reflect the confidence of the
+    prediction.
+    """
+
     entry = last_close
     if target is None:
         print(red("Kein gültiges Kursziel berechnet."))
         return None, None, None, None
 
+    adj_risk = risk * probability if probability is not None else risk
+
     if target > entry:
         direction = "LONG"
         tp = target
-        sl = entry * (1 - risk - sl_puffer)
+        sl = entry * (1 - adj_risk - sl_puffer)
     else:
         direction = "SHORT"
         tp = target
-        sl = entry * (1 + risk + sl_puffer)
+        sl = entry * (1 + adj_risk + sl_puffer)
 
     if levels:
         prices = [lvl["price"] for lvl in levels]
@@ -986,7 +1006,7 @@ def suggest_trade(df, current_wave, target, last_close, entry_zone=None, tp_zone
             tp = min(prices, key=lambda p: abs(p - tp))
             entry = min(prices, key=lambda p: abs(p - entry))
 
-    size = 1000 * risk / abs(entry - sl) if abs(entry - sl) > 0 else 0
+    size = 1000 * adj_risk / abs(entry - sl) if abs(entry - sl) > 0 else 0
     print(
         bold(
             f"\n[TRADE-SETUP] {direction} | Entry: {entry:.4f} | SL: {sl:.4f} | TP: {tp:.4f} | PosSize: {size:.1f}x"
@@ -1042,7 +1062,14 @@ def run_pattern_analysis(df, model, features, levels=None):
         validity = "valid" if target is not None else "invalid"
         trade = None
         if validity == "valid":
-            direction, sl, tp, entry = suggest_trade(df_feat.iloc[: i + 1], wave, target, row["close"], levels=levels)
+            direction, sl, tp, entry = suggest_trade(
+                df_feat.iloc[: i + 1],
+                wave,
+                target,
+                row["close"],
+                levels=levels,
+                probability=prob,
+            )
             trade = {"entry": entry, "sl": sl, "tp": tp, "probability": prob}
         results.append({
             "pattern_type": wave,
@@ -1198,8 +1225,17 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     # === Trade-Setup Output ===
     trade_wave = next_wave if next_target else current_wave
     trade_target = next_target if next_target else target
+    trade_wave_idx = list(classes).index(trade_wave)
+    trade_prob = proba_row[trade_wave_idx]
     direction, sl, tp, entry = suggest_trade(
-        df_features, trade_wave, trade_target, last_complete_close, entry_zone, tp_zone, levels=levels
+        df_features,
+        trade_wave,
+        trade_target,
+        last_complete_close,
+        entry_zone,
+        tp_zone,
+        levels=levels,
+        probability=trade_prob,
     )
     if direction is None:
         print(red("Trade-Setup konnte nicht erstellt werden."))
