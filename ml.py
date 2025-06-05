@@ -20,11 +20,12 @@ MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
 DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
 
 FEATURES_BASE = [
-    "returns","range","body","ma_diff","vol_ratio","fibo_level",
-    "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
-    "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
-    "ema_ratio","bb_width","roc_10","roll_corr_10","slope_5","trend_len","vol_atr_ratio",
-    "rsi_4h","close_4h","vol_4h"
+    "returns", "range", "body", "ma_diff", "vol_ratio", "fibo_level",
+    "wave_len_ratio", "rsi_z", "macd", "macd_signal", "stoch_k", "stoch_d", "obv",
+    "atr", "kvo", "kvo_signal", "cmf", "high_z", "low_z", "vol_z",
+    "ema_ratio", "bb_width", "roc_10", "roll_corr_10", "slope_5",
+    "trend_len", "vol_atr_ratio",
+    "rsi_4h", "close_4h", "vol_4h",
 ]
 
 def save_model(model, path):
