@@ -6,9 +6,9 @@ import numpy as np
 import pandas as pd
 
 _TIMEFRAME_MAP = {
-    "2h": "2H",
-    "4h": "4H",
-    "8h": "8H",
+    "2h": "2h",
+    "4h": "4h",
+    "8h": "8h",
     "1d": "1D",
     "1w": "1W",
 }

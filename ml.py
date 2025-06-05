@@ -675,7 +675,7 @@ def train_ml(skip_grid_search=False, max_samples=None, model_type="rf", feature_
         save_dataset(df, DATASET_PATH)
 
     print(f"{blue('Gesamtanzahl Datenpunkte:')} {len(df)}")
-    df.index = pd.date_range("2020-01-01", periods=len(df), freq="1H")
+    df.index = pd.date_range("2020-01-01", periods=len(df), freq="1h")
     levels = get_all_levels(df, ["2H", "4H", "1D", "1W"])
     df = make_features(df, levels=levels)
     df_valid = df[~df['wave'].isin(['X','INVALID_WAVE'])].reset_index(drop=True)
