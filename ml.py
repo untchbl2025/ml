@@ -49,7 +49,10 @@ PATTERN_PROJ_FACTORS = {
     "DOUBLE_ZIGZAG": 1.1,
     "FLAT": 0.8,
     "RUNNING_FLAT": 0.7,
-    "EXPANDED_FLAT": 1.2
+    "EXPANDED_FLAT": 1.2,
+    "TREND_REVERSAL": 1.0,
+    "FALSE_BREAKOUT": 0.8,
+    "GAP_EXTENSION": 1.2
 }
 SPECIALPATTERN_NEXTWAVE = {
     "TRIANGLE": "5",
@@ -57,7 +60,10 @@ SPECIALPATTERN_NEXTWAVE = {
     "DOUBLE_ZIGZAG": "1",
     "FLAT": "1",
     "RUNNING_FLAT": "1",
-    "EXPANDED_FLAT": "1"
+    "EXPANDED_FLAT": "1",
+    "TREND_REVERSAL": "1",
+    "FALSE_BREAKOUT": "1",
+    "GAP_EXTENSION": "1"
 }
 LABEL_MAP = {
     "1": "Impulswelle 1",
@@ -74,6 +80,9 @@ LABEL_MAP = {
     "FLAT": "Flat (Seitwärts)",
     "RUNNING_FLAT": "Running Flat",
     "EXPANDED_FLAT": "Expanded Flat",
+    "TREND_REVERSAL": "Trend Reversal",
+    "FALSE_BREAKOUT": "False Breakout",
+    "GAP_EXTENSION": "Gap Extension",
     "N": "Kein Muster",
     "X": "Zwischenwelle",
     "INVALID_WAVE": "Ungültig"
@@ -336,8 +345,69 @@ def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
-def generate_negative_samples(length=100, amp=100, noise=20):
+def synthetic_trend_reversal_pattern(length=40, amp=100, noise=3, gap_chance=0.1):
+    up_len = length // 2
+    down_len = length - up_len
+    up = amp + np.cumsum(np.abs(np.random.normal(amp/up_len, noise, up_len)))
+    gap = np.random.uniform(amp*0.05, amp*0.15) if np.random.rand() < gap_chance else 0
+    start_down = up[-1] + gap
+    down = synthetic_zigzag_pattern(down_len, start_down, noise)['close']
+    prices = np.concatenate([up, down])
+    labels = ['TREND_REVERSAL'] * len(prices)
+    df = pd.DataFrame({'close': prices, 'wave': labels})
+    df['open'] = df['close'].shift(1).fillna(df['close'][0])
+    df['high'] = np.maximum(df['open'], df['close']) + np.random.uniform(0,1,len(df))
+    df['low'] = np.minimum(df['open'], df['close']) - np.random.uniform(0,1,len(df))
+    df['volume'] = np.random.uniform(100,1000,len(df))
+    return df
+
+def synthetic_false_breakout_pattern(length=40, amp=100, noise=3, gap_chance=0.1):
+    base_len = length // 3
+    breakout_len = length // 4
+    end_len = length - base_len - breakout_len
+    base = amp + np.cumsum(np.random.normal(0, noise, base_len))
+    direction = 1 if np.random.rand() < 0.5 else -1
+    breakout = base[-1] + direction * np.cumsum(np.abs(np.random.normal(amp/breakout_len, noise, breakout_len)))
+    if np.random.rand() < gap_chance:
+        breakout[0] = base[-1] + direction * np.random.uniform(amp*0.05, amp*0.1)
+    ret = breakout[-1] - direction * np.cumsum(np.abs(np.random.normal(amp/end_len, noise, end_len)))
+    prices = np.concatenate([base, breakout, ret])
+    labels = ['FALSE_BREAKOUT'] * len(prices)
+    df = pd.DataFrame({'close': prices, 'wave': labels})
+    df['open'] = df['close'].shift(1).fillna(df['close'][0])
+    df['high'] = np.maximum(df['open'], df['close']) + np.random.uniform(0,1,len(df))
+    df['low'] = np.minimum(df['open'], df['close']) - np.random.uniform(0,1,len(df))
+    df['volume'] = np.random.uniform(100,1000,len(df))
+    return df
+
+def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
+    l1 = length // 3
+    l2 = length // 3
+    l3 = length - l1 - l2
+    first = amp + np.cumsum(np.random.normal(amp/l1, noise, l1))
+    gap = np.random.uniform(-amp*0.15, amp*0.15)
+    mid_start = first[-1] + gap
+    mid_df = synthetic_triangle_pattern(l2, amp, noise)
+    mid = mid_df['close'].to_numpy()
+    mid = mid - mid[0] + mid_start
+    ext = mid[-1] + np.cumsum(np.random.normal(amp/l3, noise, l3))
+    prices = np.concatenate([first, mid, ext])
+    labels = ['GAP_EXTENSION'] * len(prices)
+    df = pd.DataFrame({'close': prices, 'wave': labels})
+    df['open'] = df['close'].shift(1).fillna(df['close'][0])
+    df['high'] = np.maximum(df['open'], df['close']) + np.random.uniform(0,1,len(df))
+    df['low'] = np.minimum(df['open'], df['close']) - np.random.uniform(0,1,len(df))
+    df['volume'] = np.random.uniform(100,1000,len(df))
+    return df
+
+def generate_negative_samples(length=100, amp=100, noise=20, outlier_chance=0.1, gap_chance=0.1):
     prices = amp + np.cumsum(np.random.normal(0, noise, length))
+    for i in range(1, length):
+        if np.random.rand() < gap_chance:
+            gap = np.random.normal(0, noise*5)
+            prices[i:] += gap
+    mask = np.random.rand(length) < outlier_chance
+    prices[mask] += np.random.normal(0, noise*10, mask.sum())
     labels = ['N']*len(prices)
     n = min(len(prices), len(labels))
     df = pd.DataFrame({'close': prices[:n], 'wave': labels[:n]})
@@ -365,19 +435,30 @@ def generate_rulebased_synthetic_with_patterns(n=1000, negative_ratio=0.15, patt
         synthetic_double_zigzag_pattern,
         synthetic_running_flat_pattern,
         synthetic_expanded_flat_pattern,
+        synthetic_trend_reversal_pattern,
+        synthetic_false_breakout_pattern,
+        synthetic_gap_extension_pattern,
     ]
     for _ in range(num_pattern):
-        f = np.random.choice(pattern_funcs)
-        length = np.random.randint(32, 70)
-        amp = np.random.uniform(60, 140)
-        noise = np.random.uniform(1, 3.5)
-        df = f(length=length, amp=amp, noise=noise)
+        segs = []
+        for _ in range(np.random.randint(1, 3)):
+            f = np.random.choice(pattern_funcs)
+            length = np.random.randint(32, 70)
+            amp = np.random.uniform(60, 140)
+            noise = np.random.uniform(1, 3.5)
+            d = f(length=length, amp=amp, noise=noise)
+            if np.random.rand() < 0.3:
+                cut = np.random.randint(len(d)//2, len(d))
+                d = d.iloc[:cut]
+            segs.append(d)
+        df = pd.concat(segs, ignore_index=True)
         dfs.append(df)
     for _ in range(num_neg):
         length = np.random.randint(80, 250)
         amp = np.random.uniform(50, 120)
         noise = np.random.uniform(12, 35)
-        df = generate_negative_samples(length=length, amp=amp, noise=noise)
+        df = generate_negative_samples(length=length, amp=amp, noise=noise,
+                                       outlier_chance=0.2, gap_chance=0.2)
         dfs.append(df)
     combined = pd.concat(dfs, ignore_index=True)
     return combined
