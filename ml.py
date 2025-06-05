@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import requests
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, VotingClassifier
+from sklearn.model_selection import train_test_split, GridSearchCV, TimeSeriesSplit
 from scipy.stats import zscore
 from tabulate import tabulate
 import os
@@ -23,7 +23,7 @@ FEATURES_BASE = [
     "returns","range","body","ma_diff","vol_ratio","fibo_level",
     "wave_len_ratio","rsi_z","macd","macd_signal","stoch_k","stoch_d","obv",
     "atr","kvo","kvo_signal","cmf","high_z","low_z","vol_z",
-    "ema_ratio","bb_width","roc_10",
+    "ema_ratio","bb_width","roc_10","roll_corr_10","slope_5","trend_len","vol_atr_ratio",
     "rsi_4h","close_4h","vol_4h"
 ]
 
@@ -149,6 +149,34 @@ def calc_cmf(df, period=20):
     mfv_sum = mfv.rolling(window=period).sum()
     vol_sum = df['volume'].rolling(window=period).sum()
     return mfv_sum / (vol_sum + 1e-8)
+
+def calc_rolling_corr(series1, series2, window=10):
+    """Rolling correlation between two series."""
+    return series1.rolling(window).corr(series2)
+
+def calc_slope(series, window=5):
+    """Linear regression slope over a rolling window."""
+    idx = np.arange(window)
+    def _slope(x):
+        if len(x) < window:
+            return np.nan
+        sl, _ = np.polyfit(idx, x, 1)
+        return sl
+    return series.rolling(window).apply(_slope, raw=True)
+
+def calc_trend_length(series):
+    """Length of current trend measured by consecutive price moves."""
+    diff = series.diff().fillna(0)
+    direction = np.sign(diff)
+    length = [1]
+    for i in range(1, len(direction)):
+        if direction.iloc[i] == 0:
+            length.append(length[-1])
+        elif direction.iloc[i] == direction.iloc[i-1]:
+            length.append(length[-1] + 1)
+        else:
+            length.append(1)
+    return pd.Series(length, index=series.index)
 
 # === Synthetische Muster & Generatoren ===
 def validate_impulse_elliott(df):
@@ -397,6 +425,7 @@ def make_features(df, df_4h=None):
     df['stoch_k'], df['stoch_d'] = calc_stoch_kd(df)
     df['obv'] = calc_obv(df)
     df['atr'] = calc_atr(df)
+    df['vol_atr_ratio'] = df['volume'] / (df['atr'] + 1e-8)
     df['kvo'], df['kvo_signal'] = calc_klinger(df)
     df['cmf'] = calc_cmf(df)
     df['high_z'] = zscore(df['high'])
@@ -409,6 +438,9 @@ def make_features(df, df_4h=None):
     bb_std = df['close'].rolling(20).std()
     df['bb_width'] = (bb_std * 4) / (bb_mid + 1e-8)
     df['roc_10'] = df['close'].pct_change(10).fillna(0)
+    df['roll_corr_10'] = calc_rolling_corr(df['close'], df['volume']).bfill()
+    df['slope_5'] = calc_slope(df['close']).bfill()
+    df['trend_len'] = calc_trend_length(df['close'])
     if 'subwave' not in df.columns:
         df = synthetic_subwaves(df)
     if df_4h is not None:
@@ -484,20 +516,23 @@ def train_ml(skip_grid_search=False, max_samples=None):
     if skip_grid_search:
         best_params = {"n_estimators": 200, "max_depth": None, "class_weight": None}
     else:
-        grid = GridSearchCV(base_model, param_grid, cv=3, n_jobs=-1)
+        tscv = TimeSeriesSplit(n_splits=3)
+        grid = GridSearchCV(base_model, param_grid, cv=tscv, n_jobs=-1)
         print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
         grid.fit(X_train, y_train)
         print(green(f"Beste CV-Genauigkeit: {grid.best_score_:.3f} | Beste Parameter: {grid.best_params_}"))
         best_params = grid.best_params_
 
-    model = RandomForestClassifier(**best_params, random_state=42)
+    rf = RandomForestClassifier(**best_params, random_state=42)
+    gb = GradientBoostingClassifier(random_state=42)
+    model = VotingClassifier(estimators=[('rf', rf), ('gb', gb)], voting='soft')
     print(yellow("Trainiere finales Modell..."))
     model.fit(X_train, y_train)
     train_score = model.score(X_train, y_train)
     test_score = model.score(X_test, y_test)
     print(green(f"Training fertig. Genauigkeit (Train): {train_score:.3f} | (Test): {test_score:.3f}"))
     print(f"{blue('Wichtigste ML-Features:')}")
-    importance = pd.Series(model.feature_importances_, index=features).sort_values(ascending=False)
+    importance = pd.Series(rf.feature_importances_, index=features).sort_values(ascending=False)
     print(importance.head(8).round(3))
     save_model(model, MODEL_PATH)
     return model, features, importance
@@ -725,6 +760,7 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     classes = model.classes_
     df_features["wave_pred_raw"] = pred_raw
     df_features["wave_pred"] = pred
+    df_features["confidence"] = pred_proba.max(axis=1)
     proba_row = pred_proba[-1]
     current_wave = df_features["wave_pred"].iloc[-1]
     main_wave = pred[-1]
@@ -742,11 +778,13 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             print(yellow("\nAktuelle erkannte Welle: Noise/Invalid/X"))
             print(yellow(f"Alternativer Vorschlag (höchste ML-Prob.): {alt_wave} ({alt_prob*100:.1f}%) → {LABEL_MAP.get(alt_wave,alt_wave)}"))
             current_wave = alt_wave
-            print(green(f"Aktuelle erkannte Welle (endgültig): {current_wave} ({alt_prob*100:.1f}%) - {LABEL_MAP.get(current_wave,current_wave)}"))
+            confidence = alt_prob - np.partition(proba_row, -2)[-2]
+            print(green(f"Aktuelle erkannte Welle (endgültig): {current_wave} ({alt_prob*100:.1f}%) - {LABEL_MAP.get(current_wave,current_wave)} | Conf: {confidence*100:.1f}%"))
         else:
             print(red("Keine valide Welle mit hinreichender Wahrscheinlichkeit erkannt!"))
     else:
-        print(green(f"Aktuelle erkannte Welle (endgültig): {current_wave} ({main_wave_prob*100:.1f}%) - {LABEL_MAP.get(current_wave,current_wave)}"))
+        confidence = main_wave_prob - np.partition(proba_row, -2)[-2]
+        print(green(f"Aktuelle erkannte Welle (endgültig): {current_wave} ({main_wave_prob*100:.1f}%) - {LABEL_MAP.get(current_wave,current_wave)} | Conf: {confidence*100:.1f}%"))
 
     prob_sorted_idx = np.argsort(proba_row)[::-1]
     print(bold("\nTop-3 ML-Wahrscheinlichkeiten:"))
