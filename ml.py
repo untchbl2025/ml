@@ -252,7 +252,7 @@ def get_all_levels(
 # === Parameter ===
 SYMBOL = "SPXUSDT"
 LIVEDATA_LEN = 1000
-TRAIN_N = 200
+TRAIN_N = 100
 PUFFER = 0.02
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
