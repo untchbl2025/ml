@@ -848,18 +848,18 @@ def generate_negative_samples(
     prices[mask] += np.random.normal(0, noise * 10, mask.sum())
 
     # ensure no negative prices
-    prices = np.clip(prices, 0, None)
+    prices = np.clip(prices, 1.0, None)
 
     labels = ["N"] * len(prices)
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df[["open", "close"]] = df[["open", "close"]].clip(lower=0)
+    df[["open", "close"]] = df[["open", "close"]].clip(lower=1.0)
     df["high"] = (
         np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
     )
     df["low"] = (
-        np.maximum(0, np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df)))
+        np.maximum(1.0, np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df)))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
@@ -874,12 +874,12 @@ def _simple_wave_segment(label, start_price, length=8, noise=2):
     )
     df = pd.DataFrame({"close": prices, "wave": [label] * length})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df[["open", "close"]] = df[["open", "close"]].clip(lower=0)
+    df[["open", "close"]] = df[["open", "close"]].clip(lower=1.0)
     df["high"] = (
         np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
     )
     df["low"] = (
-        np.maximum(0, np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df)))
+        np.maximum(1.0, np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df)))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
@@ -922,7 +922,7 @@ def generate_rulebased_synthetic_with_patterns(
         amp = np.random.uniform(60, 150)
         noise = np.random.uniform(1, 4)
         df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
         dfs.append(df)
         step += 1
         _progress("Positives", i + 1, num_pos)
@@ -952,7 +952,7 @@ def generate_rulebased_synthetic_with_patterns(
                     segs.append(follow)
                     start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
         dfs.append(df)
         step += 1
         _progress("Patterns", i + 1, num_pattern)
@@ -968,7 +968,7 @@ def generate_rulebased_synthetic_with_patterns(
             outlier_chance=0.2,
             gap_chance=0.2,
         )
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
         dfs.append(df)
         step += 1
         _progress("Noise", i + 1, num_neg)
@@ -1033,6 +1033,10 @@ def validate_dataset(df: pd.DataFrame, range_thresh: float = 3.0) -> None:
     neg_rows = (df[["open", "high", "low", "close"]] < 0).any(axis=1).sum()
     if neg_rows:
         print(f"[DataCheck] Warning: {neg_rows} rows contain negative prices")
+
+    zero_close = (df["close"] <= 0).sum()
+    if zero_close:
+        print(f"[DataCheck] Warning: {zero_close} rows have zero close price")
 
     extreme = ((df["high"] - df["low"]) / df["close"] > range_thresh).sum()
     if extreme:
