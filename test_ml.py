@@ -1,6 +1,14 @@
+import sys
+import types
+
 import pandas as pd
 import numpy as np
 import pytest
+
+# Stub optional heavy dependencies before importing ml
+sys.modules.setdefault("lightgbm", types.SimpleNamespace(LGBMClassifier=object))
+sys.modules.setdefault("xgboost", types.SimpleNamespace(XGBClassifier=object))
+
 import ml
 
 
