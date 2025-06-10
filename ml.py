@@ -1382,7 +1382,17 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
     target, wave_start_price, last_wave_close = elliott_target(
         df_features, current_wave, last_complete_close, levels=levels
     )
-    next_wave = get_next_wave(current_wave)
+    # Bestmögliche Folgewelle anhand der ML-Wahrscheinlichkeit wählen
+    next_wave_candidates = get_next_wave(current_wave)
+    next_wave = None
+    next_wave_start = None
+    next_target = None
+    next_wave_prob = -1
+    for cand in next_wave_candidates:
+        cand_prob = proba_row[classes.index(cand)] if cand in classes else 0.0
+        if cand_prob > next_wave_prob:
+            next_wave = cand
+            next_wave_prob = cand_prob
     if next_wave:
         next_target, next_wave_start, _ = elliott_target(
             df_features,
@@ -1390,10 +1400,18 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             target if target is not None else last_wave_close,
             levels=levels,
         )
-    else:
-        next_target = None
-        next_wave_start = None
-    next_next_wave = get_next_wave(next_wave) if next_wave else None
+
+    # Gleiches Vorgehen für die übernächste Welle
+    next_next_wave_candidates = get_next_wave(next_wave) if next_wave else []
+    next_next_wave = None
+    next_next_wave_start = None
+    next_next_target = None
+    next_next_prob = -1
+    for cand in next_next_wave_candidates:
+        cand_prob = proba_row[classes.index(cand)] if cand in classes else 0.0
+        if cand_prob > next_next_prob:
+            next_next_wave = cand
+            next_next_prob = cand_prob
     if next_next_wave:
         next_next_target, next_next_wave_start, _ = elliott_target(
             df_features,
@@ -1403,9 +1421,6 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
             ),
             levels=levels,
         )
-    else:
-        next_next_target = None
-        next_next_wave_start = None
 
     print(bold("\n==== ZIELPROJEKTIONEN ===="))
     print(
