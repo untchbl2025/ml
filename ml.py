@@ -255,14 +255,9 @@ LIVEDATA_LEN = 1000
 TRAIN_N = 1000
 PUFFER = 0.02
 
-# Default directory to save model and dataset. When running in Google Colab and
-# Drive is mounted at ``/content/drive`` we store artefacts in ``MyDrive/ml`` so
-# they persist in the user's Drive. Otherwise fall back to the current working
-# directory.
-if os.path.exists("/content/drive"):
-    DEFAULT_SAVE_DIR = "/content/drive/MyDrive/ml"
-else:
-    DEFAULT_SAVE_DIR = "."
+# Default directory to save model and dataset. Store artefacts next to this
+# script so the code can run anywhere without adjusting paths.
+DEFAULT_SAVE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 MODEL_PATH = os.environ.get(
     "MODEL_PATH", os.path.join(DEFAULT_SAVE_DIR, "elliott_model.joblib")
