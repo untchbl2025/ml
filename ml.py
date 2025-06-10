@@ -1056,11 +1056,18 @@ def generate_balanced_wave_dataset(
 
     # --- main wave segments ---
     while min(counts.values()) < target_per_label:
-        lengths = np.random.randint(12, 50, size=8)
-        amp = np.random.uniform(60, 150)
-        noise = np.random.uniform(1, 4)
-        df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
+        # try up to 10 times and skip if INVALID_WAVE or extreme/negative values
+        for _ in range(10):
+            lengths = np.random.randint(12, 50, size=8)
+            amp = np.random.uniform(60, 150)
+            noise = np.random.uniform(1, 4)
+            df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
+            if (
+                "INVALID_WAVE" not in df["wave"].values
+                and ((df["high"] - df["low"]) / df["close"] < 3.0).all()
+                and (df[["open", "high", "low", "close"]] > 0).all().all()
+            ):
+                break
         dfs.append(df)
         for lbl, c in df["wave"].value_counts().items():
             if lbl in counts:
@@ -1072,7 +1079,11 @@ def generate_balanced_wave_dataset(
             start = dfs[-1]["close"].iloc[-1] if dfs else 100.0
             seg_len = np.random.randint(12, 25)
             seg = _simple_wave_segment(lbl, start, length=seg_len)
-            seg[["open", "high", "low", "close"]] = seg[["open", "high", "low", "close"]].clip(lower=1.0)
+            if (
+                ((seg["high"] - seg["low"]) / seg["close"] > 3.0).any()
+                or (seg[["open", "high", "low", "close"]] <= 0).any().any()
+            ):
+                continue
             dfs.append(seg)
             counts[lbl] += len(seg)
 
@@ -1085,6 +1096,11 @@ def generate_balanced_wave_dataset(
             amp = np.random.uniform(60, 140)
             noise = np.random.uniform(1, 3.5)
             d = f(length=length, amp=amp, noise=noise)
+            if (
+                ((d["high"] - d["low"]) / d["close"] > 3.0).any()
+                or (d[["open", "high", "low", "close"]] <= 0).any().any()
+            ):
+                continue
             if np.random.rand() < 0.3:
                 cut = np.random.randint(len(d) // 2, len(d))
                 d = d.iloc[:cut]
@@ -1098,10 +1114,14 @@ def generate_balanced_wave_dataset(
                         continue
                     follow_len = np.random.randint(5, 12)
                     follow = _simple_wave_segment(wave, start, length=follow_len)
+                    if (
+                        ((follow["high"] - follow["low"]) / follow["close"] > 3.0).any()
+                        or (follow[["open", "high", "low", "close"]] <= 0).any().any()
+                    ):
+                        continue
                     segs.append(follow)
                     start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
         dfs.append(df)
         pattern_points += len(df)
 
@@ -1117,30 +1137,32 @@ def generate_balanced_wave_dataset(
             outlier_chance=0.2,
             gap_chance=0.2,
         )
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
+        if (
+            ((df["high"] - df["low"]) / df["close"] > 3.0).any()
+            or (df[["open", "high", "low", "close"]] <= 0).any().any()
+        ):
+            continue
         dfs.append(df)
         noise_points += len(df)
 
     combined = pd.concat(dfs, ignore_index=True)
 
-    # limit INVALID_WAVE/N ratio
-    invalid_mask = combined["wave"].isin(["INVALID_WAVE", "N"])
-    invalid_count = invalid_mask.sum()
-    max_invalid = 2 * target_per_label
-    if invalid_count > max_invalid:
-        keep_invalid = combined[invalid_mask].sample(max_invalid, random_state=42)
-        combined = pd.concat([combined[~invalid_mask], keep_invalid], ignore_index=True)
+    # LIMITIERUNG: INVALID_WAVE/N maximal 2x seltenste Hauptwelle
+    main_counts = combined["wave"].value_counts()
+    rarest_main = min(main_counts.get(lbl, 0) for lbl in main_labels)
+    for invalid_lbl in ["INVALID_WAVE", "N"]:
+        idx = combined[combined["wave"] == invalid_lbl].index
+        max_count = 2 * rarest_main
+        if len(idx) > max_count:
+            drop_idx = np.random.choice(idx, len(idx) - max_count, replace=False)
+            combined = combined.drop(drop_idx)
+
+    combined = combined.reset_index(drop=True)
 
     counts_final = combined["wave"].value_counts()
     if log:
         print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
         print("[DataGen] Labelverteilung:\n" + counts_final.to_string())
-
-    combined = balance_labels(combined, target_count=target_per_label)
-
-    if log:
-        counts_bal = combined["wave"].value_counts()
-        print("[DataGen] Labelverteilung nach Balancing:\n" + counts_bal.to_string())
 
     validate_dataset(combined)
     return combined
