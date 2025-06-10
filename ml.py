@@ -2089,9 +2089,13 @@ def run_ml_on_bitget(
     )
     print(bold("\nFolgewellen-Projektion:"))
     for fw in future_waves:
+        start = fw.get("start")
+        target = fw.get("target")
+        start_str = f"{start:.4f}" if start is not None else "n/a"
+        target_str = f"{target:.4f}" if target is not None else "n/a"
         print(
-            f"Welle: {fw['wave']} | Start: {fw['start']:.4f} | "
-            f"Ziel: {fw['target']:.4f} | Wahrscheinlichkeit: {fw['probability']*100:.1f}%"
+            f"Welle: {fw['wave']} | Start: {start_str} | "
+            f"Ziel: {target_str} | Wahrscheinlichkeit: {fw['probability']*100:.1f}%"
         )
 
     pattern_conf = df_features["pattern_confidence"].iloc[-1]
