@@ -995,26 +995,21 @@ def _latest_segment_indices(df, wave_label):
     return splits[-1]
 
 def get_next_wave(current_wave):
-    """Ermittle die nächste erwartete Welle für das gegebene Label."""
+    """Return a list of expected follow-up waves for ``current_wave``."""
     wave = str(current_wave)
     if wave in SPECIALPATTERN_NEXTWAVE:
         nxt = SPECIALPATTERN_NEXTWAVE[wave]
         if isinstance(nxt, list):
-            if not nxt:
-                return None
-            nxt = nxt[0]
-        if nxt == "Abschluss":
-            return None
-        return nxt
+            return [n for n in nxt if n and n != "Abschluss"]
+        return [nxt] if nxt and nxt != "Abschluss" else []
     order = ['1', '2', '3', '4', '5', 'A', 'B', 'C']
     try:
         idx = order.index(wave)
         if idx + 1 < len(order):
-            return order[idx + 1]
-        else:
-            return None
+            return [order[idx + 1]]
     except Exception:
-        return None
+        pass
+    return []
 
 def elliott_target(
     df_features,
