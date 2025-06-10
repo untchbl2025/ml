@@ -559,24 +559,24 @@ def synthetic_elliott_wave_rulebased(lengths, amp, noise, puffer=PUFFER):
     prices, labels = [], []
     price = amp
     wave1_high = None
-    for i, (l, w) in enumerate(zip(lengths, pattern)):
-        if w in ["1", "3", "5"] and l >= 15:
-            seg = subwaves(l, price, noise, "impulse")
+    for i, (seg_len, w) in enumerate(zip(lengths, pattern)):
+        if w in ["1", "3", "5"] and seg_len >= 15:
+            seg = subwaves(seg_len, price, noise, "impulse")
             segment = seg
             price = seg[-1]
         elif w == "2":
-            tentative = price - np.cumsum(np.abs(np.random.normal(amp / l, noise, l)))
+            tentative = price - np.cumsum(np.abs(np.random.normal(amp / seg_len, noise, seg_len)))
             max_level = wave1_high * (1 + puffer) if wave1_high else price
             segment = np.minimum(tentative, max_level)
             price = segment[-1]
         elif w == "4":
-            segment = price - np.cumsum(np.abs(np.random.normal(amp / l, noise, l)))
+            segment = price - np.cumsum(np.abs(np.random.normal(amp / seg_len, noise, seg_len)))
             price = segment[-1]
         else:
-            segment = price - np.cumsum(np.abs(np.random.normal(amp / l, noise, l)))
+            segment = price - np.cumsum(np.abs(np.random.normal(amp / seg_len, noise, seg_len)))
             price = segment[-1]
         prices.extend(segment)
-        labels.extend([w] * l)
+        labels.extend([w] * seg_len)
         if w == "1":
             wave1_high = segment[-1]
     n = min(len(prices), len(labels))
