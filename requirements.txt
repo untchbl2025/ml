@@ -2,3 +2,10 @@ pytest
 pandas
 numpy
 scikit-learn
+matplotlib
+requests
+tabulate
+joblib
+xgboost
+lightgbm
+scipy
