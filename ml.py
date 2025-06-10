@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import requests
 from levels import get_all_levels
 from fib_levels import get_fib_levels
+from pattern_registry import register_pattern, pattern_registry
 import random
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, cross_val_score
@@ -97,12 +98,11 @@ PATTERN_PROJ_FACTORS = {
     "GAP_EXTENSION": 1.2,
     "WXY": 1.0,
     "WXYXZ": 1.0,
-    "WXYXZY": 1.0
+    "WXYXZY": 1.0,
 }
-# Mapping der erwarteten Folgewelle gemäß Elliott-Theorie. Manche Pattern
-# können in mehrere Richtungen aufgelöst werden, weshalb hier Listen verwendet
-# werden. "Abschluss" signalisiert das Ende einer Zyklusphase.
-SPECIALPATTERN_NEXTWAVE = {
+# Mapping for default Elliott wave sequence. Pattern specific follow-ups are
+# provided via the pattern registry.
+DEFAULT_NEXT_WAVE = {
     "1": "2",
     "2": "3",
     "3": "4",
@@ -111,13 +111,6 @@ SPECIALPATTERN_NEXTWAVE = {
     "A": "B",
     "B": "C",
     "C": "1",
-    "FLAT": ["3", "5", "C"],
-    "EXPANDED_FLAT": ["3", "5", "C"],
-    "ZIGZAG": ["B", "3"],
-    "DOUBLE_ZIGZAG": ["C", "5"],
-    "TRIANGLE": ["5", "C"],
-    "WXY": ["Z", "Abschluss"],
-    "WXYXZ": ["Abschluss"]
 }
 LABEL_MAP = {
     "1": "Impulswelle 1",
@@ -325,6 +318,7 @@ def synthetic_elliott_wave_rulebased(lengths, amp, noise, puffer=PUFFER):
     df = validate_impulse_elliott(df)
     return df.reset_index(drop=True)
 
+@register_pattern("TRIANGLE", next_wave=["5", "C"])
 def synthetic_triangle_pattern(length=40, amp=100, noise=3):
     base = amp
     step = amp*0.04
@@ -343,6 +337,7 @@ def synthetic_triangle_pattern(length=40, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("ZIGZAG", next_wave=["B", "3"])
 def synthetic_zigzag_pattern(length=30, amp=100, noise=3):
     len1 = length//2
     len2 = length//4
@@ -360,6 +355,7 @@ def synthetic_zigzag_pattern(length=30, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("FLAT", next_wave=["3", "5", "C"])
 def synthetic_flat_pattern(length=30, amp=100, noise=3):
     len1 = length//3
     len2 = length//3
@@ -377,6 +373,7 @@ def synthetic_flat_pattern(length=30, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("DOUBLE_ZIGZAG", next_wave=["C", "5"])
 def synthetic_double_zigzag_pattern(length=50, amp=100, noise=3):
     zz1 = synthetic_zigzag_pattern(length//2, amp, noise)['close']
     zz2 = synthetic_zigzag_pattern(length//2, amp*0.9, noise)['close']
@@ -389,6 +386,7 @@ def synthetic_double_zigzag_pattern(length=50, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("RUNNING_FLAT")
 def synthetic_running_flat_pattern(length=30, amp=100, noise=3):
     a = amp + np.cumsum(np.random.normal(amp/length, noise, length//3))
     b = a[-1] + np.cumsum(np.random.normal(amp/length, noise, length//3))
@@ -402,6 +400,7 @@ def synthetic_running_flat_pattern(length=30, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("EXPANDED_FLAT", next_wave=["3", "5", "C"])
 def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
     a = amp + np.cumsum(np.random.normal(amp/length, noise, length//3))
     b = a[-1] + np.cumsum(np.random.normal(amp/length*2, noise, length//3))
@@ -415,6 +414,7 @@ def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("TREND_REVERSAL")
 def synthetic_trend_reversal_pattern(length=40, amp=100, noise=3, gap_chance=0.1):
     up_len = length // 2
     down_len = length - up_len
@@ -431,6 +431,7 @@ def synthetic_trend_reversal_pattern(length=40, amp=100, noise=3, gap_chance=0.1
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("FALSE_BREAKOUT")
 def synthetic_false_breakout_pattern(length=40, amp=100, noise=3, gap_chance=0.1):
     base_len = length // 3
     breakout_len = length // 4
@@ -450,6 +451,7 @@ def synthetic_false_breakout_pattern(length=40, amp=100, noise=3, gap_chance=0.1
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("GAP_EXTENSION")
 def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
     l1 = length // 3
     l2 = length // 3
@@ -470,6 +472,7 @@ def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("WXY", next_wave=["Z", "Abschluss"])
 def synthetic_wxy_pattern(length=60, amp=100, noise=3):
     lw = length // 3
     lx = length // 6
@@ -486,6 +489,7 @@ def synthetic_wxy_pattern(length=60, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("WXYXZ", next_wave=["Abschluss"])
 def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
     seg = length // 5
     w = amp + np.cumsum(np.random.normal(amp/seg*2, noise, seg*2))
@@ -502,6 +506,7 @@ def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
+@register_pattern("WXYXZY")
 def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
     seg = length // 6
     w = amp + np.cumsum(np.random.normal(amp/seg, noise, seg))
@@ -564,20 +569,7 @@ def generate_rulebased_synthetic_with_patterns(
         noise = np.random.uniform(1, 4)
         df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
         dfs.append(df)
-    pattern_funcs = [
-        (synthetic_triangle_pattern, "TRIANGLE"),
-        (synthetic_zigzag_pattern, "ZIGZAG"),
-        (synthetic_flat_pattern, "FLAT"),
-        (synthetic_double_zigzag_pattern, "DOUBLE_ZIGZAG"),
-        (synthetic_running_flat_pattern, "RUNNING_FLAT"),
-        (synthetic_expanded_flat_pattern, "EXPANDED_FLAT"),
-        (synthetic_trend_reversal_pattern, "TREND_REVERSAL"),
-        (synthetic_false_breakout_pattern, "FALSE_BREAKOUT"),
-        (synthetic_gap_extension_pattern, "GAP_EXTENSION"),
-        (synthetic_wxy_pattern, "WXY"),
-        (synthetic_wxyxz_pattern, "WXYXZ"),
-        (synthetic_wxyxzy_pattern, "WXYXZY"),
-    ]
+    pattern_funcs = pattern_registry.generators()
     for _ in range(num_pattern):
         segs = []
         for _ in range(np.random.randint(1, 3)):
@@ -590,8 +582,8 @@ def generate_rulebased_synthetic_with_patterns(
                 cut = np.random.randint(len(d) // 2, len(d))
                 d = d.iloc[:cut]
             segs.append(d)
-            if pname in SPECIALPATTERN_NEXTWAVE:
-                nxt = SPECIALPATTERN_NEXTWAVE[pname]
+            nxt = pattern_registry.get_next_wave(pname)
+            if nxt:
                 nxt = nxt if isinstance(nxt, list) else [nxt]
                 start = d["close"].iloc[-1]
                 for wave in nxt:
@@ -996,18 +988,13 @@ def _latest_segment_indices(df, wave_label):
 def get_next_wave(current_wave):
     """Return a list of expected follow-up waves for ``current_wave``."""
     wave = str(current_wave)
-    if wave in SPECIALPATTERN_NEXTWAVE:
-        nxt = SPECIALPATTERN_NEXTWAVE[wave]
+    nxt = pattern_registry.get_next_wave(wave)
+    if nxt:
         if isinstance(nxt, list):
             return [n for n in nxt if n and n != "Abschluss"]
         return [nxt] if nxt and nxt != "Abschluss" else []
-    order = ['1', '2', '3', '4', '5', 'A', 'B', 'C']
-    try:
-        idx = order.index(wave)
-        if idx + 1 < len(order):
-            return [order[idx + 1]]
-    except Exception:
-        pass
+    if wave in DEFAULT_NEXT_WAVE:
+        return [DEFAULT_NEXT_WAVE[wave]]
     return []
 
 def elliott_target(
