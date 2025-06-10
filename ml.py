@@ -81,9 +81,7 @@ def _current_swing(df: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
     return high_idx, low_idx
 
 
-def get_fib_levels(
-    df: pd.DataFrame, timeframe: str
-) -> List[Dict[str, object]]:
+def get_fib_levels(df: pd.DataFrame, timeframe: str) -> List[Dict[str, object]]:
     """Return fibonacci levels for the current swing of ``df``."""
 
     if not isinstance(df.index, pd.DatetimeIndex):
@@ -93,9 +91,7 @@ def get_fib_levels(
     start_price = (
         df.loc[start_ts, "low"] if start_ts < end_ts else df.loc[start_ts, "high"]
     )
-    end_price = (
-        df.loc[end_ts, "high"] if end_ts > start_ts else df.loc[end_ts, "low"]
-    )
+    end_price = df.loc[end_ts, "high"] if end_ts > start_ts else df.loc[end_ts, "low"]
 
     if end_price >= start_price:
         diff = end_price - start_price
@@ -151,13 +147,9 @@ _TIMEFRAME_MAP = {
 class LevelCalculator:
     """Calculate pivot, volume profile, equilibrium and open levels."""
 
-    def __init__(
-        self, df: pd.DataFrame, timeframe: str, n_bins: int = 30
-    ) -> None:
+    def __init__(self, df: pd.DataFrame, timeframe: str, n_bins: int = 30) -> None:
         if "open" not in df.columns:
-            raise ValueError(
-                "DataFrame must contain OHLCV data with 'open' column"
-            )
+            raise ValueError("DataFrame must contain OHLCV data with 'open' column")
         if not isinstance(df.index, pd.DatetimeIndex):
             raise ValueError("DataFrame index must be a DatetimeIndex")
         self.df = df.copy()
@@ -167,9 +159,7 @@ class LevelCalculator:
         self.n_bins = n_bins
 
     def calculate(self) -> List[Dict[str, object]]:
-        groups = self.df.groupby(
-            pd.Grouper(freq=self.tf, label="left", closed="left")
-        )
+        groups = self.df.groupby(pd.Grouper(freq=self.tf, label="left", closed="left"))
         levels: List[Dict[str, object]] = []
         prev_info = None
         for ts, g in groups:
@@ -466,9 +456,7 @@ def calc_klinger(df, fast=34, slow=55, signal=13):
 
 
 def calc_cmf(df, period=20):
-    mfv = ((df["close"] - df["low"]) - (df["high"] - df["close"])) * df[
-        "volume"
-    ]
+    mfv = ((df["close"] - df["low"]) - (df["high"] - df["close"])) * df["volume"]
     mfv_sum = mfv.rolling(window=period).sum()
     vol_sum = df["volume"].rolling(window=period).sum()
     return mfv_sum / (vol_sum + 1e-8)
@@ -482,7 +470,7 @@ def calc_slope(series, window=5):
         if i < window - 1:
             slopes.append(np.nan)
             continue
-        y = series.iloc[i - window + 1: i + 1]
+        y = series.iloc[i - window + 1 : i + 1]
         m, _ = np.polyfit(idx, y, 1)
         slopes.append(m)
     return pd.Series(slopes, index=series.index)
@@ -508,9 +496,7 @@ def calc_pattern_confidence(series, window=10):
 def validate_impulse_elliott(df):
     def wave_len(w):
         d = df[df["wave"] == w]
-        return (
-            abs(d["close"].iloc[-1] - d["close"].iloc[0]) if len(d) > 1 else 0
-        )
+        return abs(d["close"].iloc[-1] - d["close"].iloc[0]) if len(d) > 1 else 0
 
     w1_len = wave_len("1")
     w3_len = wave_len("3")
@@ -567,21 +553,15 @@ def synthetic_elliott_wave_rulebased(lengths, amp, noise, puffer=PUFFER):
             segment = seg
             price = seg[-1]
         elif w == "2":
-            tentative = price - np.cumsum(
-                np.abs(np.random.normal(amp / l, noise, l))
-            )
+            tentative = price - np.cumsum(np.abs(np.random.normal(amp / l, noise, l)))
             max_level = wave1_high * (1 + puffer) if wave1_high else price
             segment = np.minimum(tentative, max_level)
             price = segment[-1]
         elif w == "4":
-            segment = price - np.cumsum(
-                np.abs(np.random.normal(amp / l, noise, l))
-            )
+            segment = price - np.cumsum(np.abs(np.random.normal(amp / l, noise, l)))
             price = segment[-1]
         else:
-            segment = price - np.cumsum(
-                np.abs(np.random.normal(amp / l, noise, l))
-            )
+            segment = price - np.cumsum(np.abs(np.random.normal(amp / l, noise, l)))
             price = segment[-1]
         prices.extend(segment)
         labels.extend([w] * l)
@@ -590,12 +570,8 @@ def synthetic_elliott_wave_rulebased(lengths, amp, noise, puffer=PUFFER):
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     df = validate_impulse_elliott(df)
     return df.reset_index(drop=True)
@@ -606,27 +582,17 @@ def synthetic_triangle_pattern(length=40, amp=100, noise=3):
     base = amp
     step = amp * 0.04
     a = base + np.cumsum(np.random.normal(step, noise, length // 5))
-    b = a[-1] - np.cumsum(
-        np.abs(np.random.normal(step * 0.8, noise, length // 5))
-    )
+    b = a[-1] - np.cumsum(np.abs(np.random.normal(step * 0.8, noise, length // 5)))
     c = b[-1] + np.cumsum(np.random.normal(step * 0.7, noise, length // 5))
-    d = c[-1] - np.cumsum(
-        np.abs(np.random.normal(step * 0.5, noise, length // 5))
-    )
-    e = d[-1] + np.cumsum(
-        np.random.normal(step * 0.4, noise, length - length // 5 * 4)
-    )
+    d = c[-1] - np.cumsum(np.abs(np.random.normal(step * 0.5, noise, length // 5)))
+    e = d[-1] + np.cumsum(np.random.normal(step * 0.4, noise, length - length // 5 * 4))
     prices = np.concatenate([a, b, c, d, e])
     labels = ["TRIANGLE"] * len(prices)
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -644,12 +610,8 @@ def synthetic_zigzag_pattern(length=30, amp=100, noise=3):
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -667,12 +629,8 @@ def synthetic_flat_pattern(length=30, amp=100, noise=3):
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -685,12 +643,8 @@ def synthetic_double_zigzag_pattern(length=50, amp=100, noise=3):
     labels = ["DOUBLE_ZIGZAG"] * len(prices)
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -706,12 +660,8 @@ def synthetic_running_flat_pattern(length=30, amp=100, noise=3):
     labels = ["RUNNING_FLAT"] * len(prices)
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -719,9 +669,7 @@ def synthetic_running_flat_pattern(length=30, amp=100, noise=3):
 @register_pattern("EXPANDED_FLAT", next_wave=["3", "5", "C"])
 def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
     a = amp + np.cumsum(np.random.normal(amp / length, noise, length // 3))
-    b = a[-1] + np.cumsum(
-        np.random.normal(amp / length * 2, noise, length // 3)
-    )
+    b = a[-1] + np.cumsum(np.random.normal(amp / length * 2, noise, length // 3))
     c = b[-1] - np.cumsum(
         np.abs(np.random.normal(amp / length, noise, length - length // 3 * 2))
     )
@@ -729,20 +677,14 @@ def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
     labels = ["EXPANDED_FLAT"] * len(prices)
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
 
 @register_pattern("TREND_REVERSAL")
-def synthetic_trend_reversal_pattern(
-    length=40, amp=100, noise=3, gap_chance=0.1
-):
+def synthetic_trend_reversal_pattern(length=40, amp=100, noise=3, gap_chance=0.1):
     up_len = length // 2
     down_len = length - up_len
     up = amp + np.cumsum(np.abs(np.random.normal(amp / up_len, noise, up_len)))
@@ -757,20 +699,14 @@ def synthetic_trend_reversal_pattern(
     labels = ["TREND_REVERSAL"] * len(prices)
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
 
 @register_pattern("FALSE_BREAKOUT")
-def synthetic_false_breakout_pattern(
-    length=40, amp=100, noise=3, gap_chance=0.1
-):
+def synthetic_false_breakout_pattern(length=40, amp=100, noise=3, gap_chance=0.1):
     base_len = length // 3
     breakout_len = length // 4
     end_len = length - base_len - breakout_len
@@ -780,9 +716,7 @@ def synthetic_false_breakout_pattern(
         np.abs(np.random.normal(amp / breakout_len, noise, breakout_len))
     )
     if np.random.rand() < gap_chance:
-        breakout[0] = base[-1] + direction * np.random.uniform(
-            amp * 0.05, amp * 0.1
-        )
+        breakout[0] = base[-1] + direction * np.random.uniform(amp * 0.05, amp * 0.1)
     ret = breakout[-1] - direction * np.cumsum(
         np.abs(np.random.normal(amp / end_len, noise, end_len))
     )
@@ -790,12 +724,8 @@ def synthetic_false_breakout_pattern(
     labels = ["FALSE_BREAKOUT"] * len(prices)
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -816,12 +746,8 @@ def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
     labels = ["GAP_EXTENSION"] * len(prices)
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -838,12 +764,8 @@ def synthetic_wxy_pattern(length=60, amp=100, noise=3):
     labels = ["W"] * lw + ["X"] * lx + ["Y"] * ly
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -858,9 +780,7 @@ def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
         np.abs(np.random.normal(amp / (length - seg * 4), noise, seg // 2))
     )
     z = x2[-1] + np.cumsum(
-        np.random.normal(
-            amp / (length - seg * 4), noise, length - seg * 4 - seg // 2
-        )
+        np.random.normal(amp / (length - seg * 4), noise, length - seg * 4 - seg // 2)
     )
     prices = np.concatenate([w, x1, y, x2, z])
     labels = (
@@ -872,12 +792,8 @@ def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
     )
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -890,9 +806,7 @@ def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
     y1 = x1[-1] + np.cumsum(np.random.normal(amp / seg, noise, seg))
     x2 = y1[-1] - np.cumsum(np.abs(np.random.normal(amp / seg, noise, seg)))
     z = x2[-1] + np.cumsum(np.random.normal(amp / seg, noise, seg))
-    y2 = z[-1] - np.cumsum(
-        np.abs(np.random.normal(amp / seg, noise, length - seg * 5))
-    )
+    y2 = z[-1] - np.cumsum(np.abs(np.random.normal(amp / seg, noise, length - seg * 5)))
     prices = np.concatenate([w, x1, y1, x2, z, y2])
     labels = (
         ["W"] * seg
@@ -904,12 +818,8 @@ def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
     )
     df = pd.DataFrame({"close": prices, "wave": labels})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -928,12 +838,8 @@ def generate_negative_samples(
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -947,12 +853,8 @@ def _simple_wave_segment(label, start_price, length=8, noise=2):
     )
     df = pd.DataFrame({"close": prices, "wave": [label] * length})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(
-        0, 1, len(df)
-    )
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(
-        0, 1, len(df)
-    )
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -1017,9 +919,7 @@ def generate_rulebased_synthetic_with_patterns(
                     if wave == "Abschluss":
                         continue
                     follow_len = np.random.randint(5, 12)
-                    follow = _simple_wave_segment(
-                        wave, start, length=follow_len
-                    )
+                    follow = _simple_wave_segment(wave, start, length=follow_len)
                     segs.append(follow)
                     start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
@@ -1047,9 +947,7 @@ def generate_rulebased_synthetic_with_patterns(
 
     combined = pd.concat(dfs, ignore_index=True)
     if log:
-        print(
-            f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}"
-        )
+        print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
     return combined
 
 
@@ -1062,7 +960,7 @@ def synthetic_subwaves(df, minlen=4, maxlen=9):
         sublen = np.random.randint(minlen, maxlen)
         if i + sublen > len(df):
             sublen = len(df) - i
-        subwave_id[i: i + sublen] = np.arange(1, sublen + 1)
+        subwave_id[i : i + sublen] = np.arange(1, sublen + 1)
         i += sublen
         wave_counter += 1
     df["subwave"] = subwave_id[: len(df)]
@@ -1122,16 +1020,14 @@ def compute_wave_fibs(df, label_col="wave_pred", buffer=PUFFER):
                     2.618: start_price + diff * 1.618,
                 }
 
-            idx_slice = df.index[start: end + 1]
+            idx_slice = df.index[start : end + 1]
             closes = df["close"].loc[idx_slice]
-            dists = pd.DataFrame(
-                {k: (closes - v).abs() for k, v in fibs.items()}
-            )
+            dists = pd.DataFrame({k: (closes - v).abs() for k, v in fibs.items()})
             min_dist = dists.min(axis=1)
             df.loc[idx_slice, "wave_fib_dist"] = min_dist / closes
-            df.loc[idx_slice, "wave_fib_near"] = (
-                min_dist / closes <= buffer
-            ).astype(int)
+            df.loc[idx_slice, "wave_fib_near"] = (min_dist / closes <= buffer).astype(
+                int
+            )
 
             start = i
             if i < len(df):
@@ -1149,9 +1045,7 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     df["ma_fast"] = df["close"].rolling(5).mean().bfill()
     df["ma_slow"] = df["close"].rolling(34).mean().bfill()
     df["ma_diff"] = df["ma_fast"] - df["ma_slow"]
-    df["vol_ratio"] = df["volume"] / (
-        df["volume"].rolling(5).mean().bfill() + 1e-6
-    )
+    df["vol_ratio"] = df["volume"] / (df["volume"].rolling(5).mean().bfill() + 1e-6)
     df["fibo_level"] = (df["close"] - df["close"].rolling(21).min()) / (
         df["close"].rolling(21).max() - df["close"].rolling(21).min() + 1e-6
     )
@@ -1177,9 +1071,7 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     bb_std = df["close"].rolling(20).std()
     df["bb_width"] = (bb_std * 4) / (bb_mid + 1e-8)
     df["roc_10"] = df["close"].pct_change(10).fillna(0)
-    df["corr_close_vol_10"] = (
-        df["close"].rolling(10).corr(df["volume"]).fillna(0)
-    )
+    df["corr_close_vol_10"] = df["close"].rolling(10).corr(df["volume"]).fillna(0)
     df["slope_5"] = calc_slope(df["close"], window=5).bfill()
     df["trend_len"] = calc_trend_length(df["returns"]).bfill()
     df["pattern_confidence"] = calc_pattern_confidence(df["close"])
@@ -1212,9 +1104,7 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
         for tf, fibs in fib_levels.items():
             prices = np.array([f["price"] for f in fibs])
             if len(prices):
-                dist = df["close"].apply(
-                    lambda x: np.min(np.abs(prices - x)) / x
-                )
+                dist = df["close"].apply(lambda x: np.min(np.abs(prices - x)) / x)
                 df[f"fib_dist_{tf.lower()}"] = dist
                 df[f"fib_near_{tf.lower()}"] = (dist <= 0.003).astype(int)
             else:
@@ -1298,14 +1188,10 @@ def fetch_bitget_ohlcv_auto(
     if not all_data:
         raise Exception("Keine Candles empfangen!")
     combined = pd.concat(all_data, ignore_index=True)
-    combined[["open", "high", "low", "close", "baseVolume", "quoteVolume"]] = (
-        combined[
-            ["open", "high", "low", "close", "baseVolume", "quoteVolume"]
-        ].astype(float)
-    )
-    combined["timestamp"] = pd.to_datetime(
-        combined["timestamp"].astype(int), unit="ms"
-    )
+    combined[["open", "high", "low", "close", "baseVolume", "quoteVolume"]] = combined[
+        ["open", "high", "low", "close", "baseVolume", "quoteVolume"]
+    ].astype(float)
+    combined["timestamp"] = pd.to_datetime(combined["timestamp"].astype(int), unit="ms")
     combined = combined.sort_values("timestamp").reset_index(drop=True)
     combined["volume"] = combined["baseVolume"]
     if len(combined) > target_len:
@@ -1341,21 +1227,14 @@ def train_ml(
     df.index = pd.date_range("2020-01-01", periods=len(df), freq="1h")
     levels = get_all_levels(df, ["2H", "4H", "1D", "1W"])
     df = make_features(df, levels=levels)
-    df_valid = df[~df["wave"].isin(["X", "INVALID_WAVE"])].reset_index(
-        drop=True
-    )
+    df_valid = df[~df["wave"].isin(["X", "INVALID_WAVE"])].reset_index(drop=True)
 
     if max_samples is not None and len(df_valid) > max_samples:
         groups = df_valid.groupby("wave")
         per_class = max_samples // len(groups)
-        sampled = [
-            g.sample(min(len(g), per_class), random_state=42)
-            for _, g in groups
-        ]
+        sampled = [g.sample(min(len(g), per_class), random_state=42) for _, g in groups]
         df_valid = (
-            pd.concat(sampled)
-            .sample(frac=1, random_state=42)
-            .reset_index(drop=True)
+            pd.concat(sampled).sample(frac=1, random_state=42).reset_index(drop=True)
         )
 
     print(f"{blue('Nach Filterung gültige Datenpunkte:')} {len(df_valid)}")
@@ -1379,9 +1258,7 @@ def train_ml(
                 "class_weight": None,
             }
         elif mtype == "xgb":
-            base = XGBClassifier(
-                random_state=42, verbosity=0, eval_metric="logloss"
-            )
+            base = XGBClassifier(random_state=42, verbosity=0, eval_metric="logloss")
             grid = {
                 "n_estimators": [100, 200],
                 "max_depth": [3, 6],
@@ -1488,9 +1365,9 @@ def train_ml(
     )
 
     if hasattr(model, "feature_importances_"):
-        importance = pd.Series(
-            model.feature_importances_, index=features
-        ).sort_values(ascending=False)
+        importance = pd.Series(model.feature_importances_, index=features).sort_values(
+            ascending=False
+        )
     else:
         importance = pd.Series(np.zeros(len(features)), index=features)
 
@@ -1531,9 +1408,7 @@ def get_fibo_zones(df, wave, side="LONG"):
 
 # === Zielprojektionen / Pattern-Targets ===
 def pattern_target(df_features, current_pattern, last_complete_close):
-    idx_pattern = df_features[
-        df_features["wave_pred"] == current_pattern
-    ].index
+    idx_pattern = df_features[df_features["wave_pred"] == current_pattern].index
     if not len(idx_pattern):
         return last_complete_close * 1.01
     close_last = df_features["close"].iloc[idx_pattern[-1]]
@@ -1599,8 +1474,10 @@ def elliott_target(
         ``wave_start_price`` by less than this tolerance, the original
         target is kept.
     """
+
     def idx(wave):
         return _latest_segment_indices(df_features, wave)
+
     start_idx = idx(current_wave)
     wave_start_price = (
         df_features["close"].iloc[start_idx[0]]
@@ -1615,9 +1492,7 @@ def elliott_target(
 
     target = None
     if str(current_wave) in PATTERN_PROJ_FACTORS:
-        target = pattern_target(
-            df_features, str(current_wave), last_complete_close
-        )
+        target = pattern_target(df_features, str(current_wave), last_complete_close)
     elif str(current_wave) == "1":
         target = wave_start_price * 1.02
     elif str(current_wave) == "2":
@@ -1635,8 +1510,7 @@ def elliott_target(
         idx1 = idx("1")
         if len(idx1) > 1 and len(start_idx) > 0:
             w1len = (
-                df_features["close"].iloc[idx1[-1]]
-                - df_features["close"].iloc[idx1[0]]
+                df_features["close"].iloc[idx1[-1]] - df_features["close"].iloc[idx1[0]]
             )
             target = wave_start_price + 1.618 * w1len
         else:
@@ -1645,8 +1519,7 @@ def elliott_target(
         idx3 = idx("3")
         if len(idx3) > 1 and len(start_idx) > 0:
             w3len = (
-                df_features["close"].iloc[idx3[-1]]
-                - df_features["close"].iloc[idx3[0]]
+                df_features["close"].iloc[idx3[-1]] - df_features["close"].iloc[idx3[0]]
             )
             target = wave_start_price - 0.382 * abs(w3len)
             if target >= wave_start_price:
@@ -1658,8 +1531,7 @@ def elliott_target(
         idx3 = idx("3")
         if len(idx1) > 1 and len(start_idx) > 0:
             w1len = (
-                df_features["close"].iloc[idx1[-1]]
-                - df_features["close"].iloc[idx1[0]]
+                df_features["close"].iloc[idx1[-1]] - df_features["close"].iloc[idx1[0]]
             )
             if len(idx3) > 1:
                 w3len = (
@@ -1676,8 +1548,7 @@ def elliott_target(
         idx5 = idx("5")
         if len(idx5) > 1 and len(start_idx) > 0:
             w5len = (
-                df_features["close"].iloc[idx5[-1]]
-                - df_features["close"].iloc[idx5[0]]
+                df_features["close"].iloc[idx5[-1]] - df_features["close"].iloc[idx5[0]]
             )
             target = wave_start_price - w5len
             if target >= wave_start_price:
@@ -1688,8 +1559,7 @@ def elliott_target(
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
             wa = (
-                df_features["close"].iloc[idxa[-1]]
-                - df_features["close"].iloc[idxa[0]]
+                df_features["close"].iloc[idxa[-1]] - df_features["close"].iloc[idxa[0]]
             )
             target = wave_start_price + 0.618 * abs(wa)
         else:
@@ -1698,8 +1568,7 @@ def elliott_target(
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
             wa = (
-                df_features["close"].iloc[idxa[-1]]
-                - df_features["close"].iloc[idxa[0]]
+                df_features["close"].iloc[idxa[-1]] - df_features["close"].iloc[idxa[0]]
             )
             target = wave_start_price - 1.0 * abs(wa)
             if target >= wave_start_price:
@@ -1710,8 +1579,7 @@ def elliott_target(
         idxw = idx("W")
         if len(idxw) > 1 and len(start_idx) > 0:
             wlen = (
-                df_features["close"].iloc[idxw[-1]]
-                - df_features["close"].iloc[idxw[0]]
+                df_features["close"].iloc[idxw[-1]] - df_features["close"].iloc[idxw[0]]
             )
             if str(current_wave) in ["Y", "Z"]:
                 target = wave_start_price + 0.618 * wlen
@@ -1772,9 +1640,7 @@ def suggest_trade(
         tp = target
         sl = entry * (1 + adj_risk + sl_puffer)
 
-    local_cols = [
-        c for c in df.columns if c.startswith(f"fib_{current_wave}_")
-    ]
+    local_cols = [c for c in df.columns if c.startswith(f"fib_{current_wave}_")]
     local_prices = []
     if local_cols:
         local_prices = df.iloc[-1][local_cols].dropna().tolist()
@@ -1826,9 +1692,7 @@ def evaluate_wave_structure(df, label_col="wave_pred"):
         if lbl in order:
             idx = order.index(lbl)
             if idx < last_idx:
-                print(
-                    red(f"Ungültige Reihenfolge bei Welle {lbl} (Start {s})")
-                )
+                print(red(f"Ungültige Reihenfolge bei Welle {lbl} (Start {s})"))
                 return False
             last_idx = idx
     print(green("Wellenreihenfolge scheint konsistent."))
@@ -1931,10 +1795,7 @@ def run_ml_on_bitget(
         parts.append(f"{len(df_1d)} (1D)")
     if df_1w is not None:
         parts.append(f"{len(df_1w)} (1W)")
-    print(
-        f"Symbol: {symbol} | Intervall: {interval} | Bars: "
-        + " / ".join(parts)
-    )
+    print(f"Symbol: {symbol} | Intervall: {interval} | Bars: " + " / ".join(parts))
     print(f"Letzter Timestamp: {df_1h['timestamp'].iloc[-1]}")
     last_complete_close = df_1h["close"].iloc[-2]
 
@@ -1957,16 +1818,25 @@ def run_ml_on_bitget(
     for fl in fib_levels.values():
         levels.extend(fl)
 
-    df_features = make_features(
-        df_1h, df_4h, levels=levels, fib_levels=fib_levels
-    )
+    df_features = make_features(df_1h, df_4h, levels=levels, fib_levels=fib_levels)
 
     # Sicherstellen, dass alle vom Modell erwarteten Features vorhanden sind
     missing = [f for f in features if f not in df_features.columns]
+
+    # Wellen-Fibo-Features hängen von Vorhersagen ab. Falls sie fehlen,
+    # zunächst ohne diese Features vorhersagen und anschließend nachberechnen.
+    wf_feats = {"wave_fib_dist", "wave_fib_near"}
     if missing:
-        msg = "Fehlende Features für Vorhersage: " + ", ".join(missing)
-        print(red(msg))
-        raise ValueError(msg)
+        if wf_feats.issuperset(missing):
+            first_pass_feats = [f for f in features if f not in wf_feats]
+            pred_tmp = model.predict(df_features[first_pass_feats])
+            df_features["wave_pred"] = smooth_predictions(pred_tmp)
+            df_features = compute_wave_fibs(df_features, "wave_pred", buffer=PUFFER)
+            missing = [f for f in features if f not in df_features.columns]
+        if missing:
+            msg = "Fehlende Features für Vorhersage: " + ", ".join(missing)
+            print(red(msg))
+            raise ValueError(msg)
 
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
@@ -1982,9 +1852,7 @@ def run_ml_on_bitget(
     main_wave_prob = proba_row[main_wave_idx]
     alt_wave, alt_prob = None, None
     if current_wave in ["N", "INVALID_WAVE", "X"]:
-        valid_waves = [
-            c for c in classes if c not in ["N", "X", "INVALID_WAVE"]
-        ]
+        valid_waves = [c for c in classes if c not in ["N", "X", "INVALID_WAVE"]]
         valid_indices = [i for i, c in enumerate(classes) if c in valid_waves]
         valid_probs = [proba_row[i] for i in valid_indices]
         if valid_probs:
@@ -2148,8 +2016,7 @@ def run_ml_on_bitget(
         df_features.get("fib_near_1w", pd.Series([0])).iloc[-1],
     )
     naked_near = int(
-        df_features["level_dist"].iloc[-1] / df_features["close"].iloc[-1]
-        <= 0.003
+        df_features["level_dist"].iloc[-1] / df_features["close"].iloc[-1] <= 0.003
     )
     prob_weight = (1 + 0.5 * fib_near) * (1 + 0.5 * naked_near)
     trade_prob *= prob_weight
@@ -2220,9 +2087,7 @@ def run_ml_on_bitget(
             label="Entry-Zone",
         )
     if tp_zone:
-        plt.axhspan(
-            tp_zone[0], tp_zone[1], color="blue", alpha=0.14, label="TP-Zone"
-        )
+        plt.axhspan(tp_zone[0], tp_zone[1], color="blue", alpha=0.14, label="TP-Zone")
     # Wellen/Pattern Text-Annotationen
     for wave in set(df_features["wave_pred"]):
         idxs = df_features[df_features["wave_pred"] == wave].index
@@ -2239,9 +2104,7 @@ def run_ml_on_bitget(
                 color="black",
                 alpha=0.8,
             )
-    plt.title(
-        f"{symbol} 1H Chart – {LABEL_MAP.get(current_wave, current_wave)}"
-    )
+    plt.title(f"{symbol} 1H Chart – {LABEL_MAP.get(current_wave, current_wave)}")
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -2251,12 +2114,8 @@ def run_ml_on_bitget(
 def main():
     global MODEL_PATH, DATASET_PATH
     parser = argparse.ArgumentParser(description="Elliott Wave ML")
-    parser.add_argument(
-        "--model-path", default=MODEL_PATH, help="Pfad zum Modell"
-    )
-    parser.add_argument(
-        "--dataset-path", default=DATASET_PATH, help="Pfad zum Dataset"
-    )
+    parser.add_argument("--model-path", default=MODEL_PATH, help="Pfad zum Modell")
+    parser.add_argument("--dataset-path", default=DATASET_PATH, help="Pfad zum Dataset")
     parser.add_argument(
         "--skip-grid-search",
         action="store_true",
