@@ -1740,6 +1740,62 @@ def evaluate_wave_structure(df, label_col="wave_pred"):
     return True
 
 
+def project_future_waves_nodamp(
+    df_features: pd.DataFrame,
+    current_wave: str,
+    main_prob: float,
+    last_close: float,
+    levels: Optional[List[Dict[str, object]]],
+    max_steps: int = 4,
+) -> List[Dict[str, object]]:
+    """Deterministically project the next ``max_steps`` Elliott waves.
+
+    The probability ``main_prob`` is kept constant for all projected waves.
+    """
+
+    waves: List[Dict[str, object]] = []
+
+    wave = current_wave
+    wave_prob = main_prob
+
+    prev_target, wave_start_price, last_wave_close = elliott_target(
+        df_features, wave, last_close, levels=levels
+    )
+
+    waves.append(
+        {
+            "wave": wave,
+            "start": wave_start_price,
+            "target": prev_target,
+            "probability": wave_prob,
+        }
+    )
+
+    for _ in range(max_steps):
+        next_waves = get_next_wave(wave)
+        if not next_waves:
+            break
+        next_wave = next_waves[0]
+        next_target, next_start, _ = elliott_target(
+            df_features,
+            next_wave,
+            prev_target if prev_target is not None else last_wave_close,
+            levels=levels,
+        )
+        waves.append(
+            {
+                "wave": next_wave,
+                "start": next_start,
+                "target": next_target,
+                "probability": wave_prob,
+            }
+        )
+        wave = next_wave
+        prev_target = next_target
+
+    return waves
+
+
 def run_pattern_analysis(df, model, features, levels=None):
     df_feat = make_features(df, levels=levels)
 
@@ -1961,6 +2017,22 @@ def run_ml_on_bitget(
         idx = prob_sorted_idx[i]
         label = classes[idx]
         print(f"  {LABEL_MAP.get(label,label)}: {proba_row[idx]*100:.1f}%")
+
+    # --- Projektion der kommenden Wellen ohne Dämpfung ---
+    future_waves = project_future_waves_nodamp(
+        df_features,
+        current_wave,
+        main_wave_prob,
+        last_complete_close,
+        levels,
+        max_steps=4,
+    )
+    print(bold("\nFolgewellen-Projektion:"))
+    for fw in future_waves:
+        print(
+            f"Welle: {fw['wave']} | Start: {fw['start']:.4f} | "
+            f"Ziel: {fw['target']:.4f} | Wahrscheinlichkeit: {fw['probability']*100:.1f}%"
+        )
 
     pattern_conf = df_features["pattern_confidence"].iloc[-1]
     if pattern_conf < CONFIDENCE_THRESHOLD:
