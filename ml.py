@@ -893,12 +893,21 @@ def generate_rulebased_synthetic_with_patterns(
     log: bool = True,
     min_count: int = 20,
     balance_ratio: float = 0.05,
+    target_per_label: int | None = None,
 ) -> pd.DataFrame:
     """Generate synthetic dataset consisting of Elliott waves, patterns and
     noise samples.
 
     When ``log`` is True, progress information is printed.
     """
+
+    if target_per_label is not None:
+        return generate_balanced_wave_dataset(
+            target_per_label=target_per_label,
+            pattern_ratio=pattern_ratio,
+            noise_ratio=negative_ratio,
+            log=log,
+        )
 
     num_pattern = int(n * pattern_ratio)
     num_neg = int(n * negative_ratio)
@@ -1017,6 +1026,120 @@ def generate_rulebased_synthetic_with_patterns(
     combined = balance_labels(combined, ratio=balance_ratio)
     validate_dataset(combined)
 
+    return combined
+
+
+def generate_balanced_wave_dataset(
+    target_per_label: int = 1000,
+    pattern_ratio: float = 0.3,
+    noise_ratio: float = 0.2,
+    log: bool = True,
+) -> pd.DataFrame:
+    """Generate dataset with roughly equal count for each main wave label."""
+
+    main_labels = ["1", "2", "3", "4", "5", "A", "B", "C"]
+    counts = Counter({lbl: 0 for lbl in main_labels})
+    dfs = []
+
+    pattern_funcs = pattern_registry.generators()
+
+    total_main = target_per_label * len(main_labels)
+    total_size = int(total_main / max(1e-6, 1 - pattern_ratio - noise_ratio))
+    target_pattern = int(total_size * pattern_ratio)
+    target_noise = int(total_size * noise_ratio)
+
+    pattern_points = 0
+    noise_points = 0
+
+    # --- main wave segments ---
+    while min(counts.values()) < target_per_label:
+        lengths = np.random.randint(12, 50, size=8)
+        amp = np.random.uniform(60, 150)
+        noise = np.random.uniform(1, 4)
+        df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
+        dfs.append(df)
+        for lbl, c in df["wave"].value_counts().items():
+            if lbl in counts:
+                counts[lbl] += c
+
+    # targeted top-up for labels
+    for lbl in main_labels:
+        while counts[lbl] < target_per_label:
+            start = dfs[-1]["close"].iloc[-1] if dfs else 100.0
+            seg_len = np.random.randint(12, 25)
+            seg = _simple_wave_segment(lbl, start, length=seg_len)
+            seg[["open", "high", "low", "close"]] = seg[["open", "high", "low", "close"]].clip(lower=1.0)
+            dfs.append(seg)
+            counts[lbl] += len(seg)
+
+    # --- pattern segments ---
+    while pattern_points < target_pattern:
+        segs = []
+        for _ in range(np.random.randint(1, 3)):
+            f, pname = random.choice(pattern_funcs)
+            length = np.random.randint(32, 70)
+            amp = np.random.uniform(60, 140)
+            noise = np.random.uniform(1, 3.5)
+            d = f(length=length, amp=amp, noise=noise)
+            if np.random.rand() < 0.3:
+                cut = np.random.randint(len(d) // 2, len(d))
+                d = d.iloc[:cut]
+            segs.append(d)
+            nxt = pattern_registry.get_next_wave(pname)
+            if nxt:
+                nxt = nxt if isinstance(nxt, list) else [nxt]
+                start = d["close"].iloc[-1]
+                for wave in nxt:
+                    if wave == "Abschluss":
+                        continue
+                    follow_len = np.random.randint(5, 12)
+                    follow = _simple_wave_segment(wave, start, length=follow_len)
+                    segs.append(follow)
+                    start = follow["close"].iloc[-1]
+        df = pd.concat(segs, ignore_index=True)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
+        dfs.append(df)
+        pattern_points += len(df)
+
+    # --- noise segments ---
+    while noise_points < target_noise:
+        length = np.random.randint(80, 250)
+        amp = np.random.uniform(50, 120)
+        noise = np.random.uniform(12, 35)
+        df = generate_negative_samples(
+            length=length,
+            amp=amp,
+            noise=noise,
+            outlier_chance=0.2,
+            gap_chance=0.2,
+        )
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=1.0)
+        dfs.append(df)
+        noise_points += len(df)
+
+    combined = pd.concat(dfs, ignore_index=True)
+
+    # limit INVALID_WAVE/N ratio
+    invalid_mask = combined["wave"].isin(["INVALID_WAVE", "N"])
+    invalid_count = invalid_mask.sum()
+    max_invalid = 2 * target_per_label
+    if invalid_count > max_invalid:
+        keep_invalid = combined[invalid_mask].sample(max_invalid, random_state=42)
+        combined = pd.concat([combined[~invalid_mask], keep_invalid], ignore_index=True)
+
+    counts_final = combined["wave"].value_counts()
+    if log:
+        print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
+        print("[DataGen] Labelverteilung:\n" + counts_final.to_string())
+
+    combined = balance_labels(combined, ratio=target_per_label / len(combined))
+
+    if log:
+        counts_bal = combined["wave"].value_counts()
+        print("[DataGen] Labelverteilung nach Balancing:\n" + counts_bal.to_string())
+
+    validate_dataset(combined)
     return combined
 
 
