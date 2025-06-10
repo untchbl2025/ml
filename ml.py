@@ -720,20 +720,46 @@ def _simple_wave_segment(label, start_price, length=8, noise=2):
 
 
 def generate_rulebased_synthetic_with_patterns(
-    n=1000, negative_ratio=0.15, pattern_ratio=0.35
-):
+    n: int = 1000,
+    negative_ratio: float = 0.15,
+    pattern_ratio: float = 0.35,
+    log: bool = True,
+) -> pd.DataFrame:
+    """Generate synthetic dataset consisting of Elliott waves, patterns and
+    noise samples.
+
+    When ``log`` is True, progress information is printed.
+    """
+
     num_pattern = int(n * pattern_ratio)
     num_neg = int(n * negative_ratio)
     num_pos = n - num_pattern - num_neg
+
+    total_steps = num_pos + num_pattern + num_neg
+    step = 0
+
+    def _progress(phase: str, idx: int, total: int) -> None:
+        if log:
+            pct = (step / total_steps) * 100
+            print(
+                f"[DataGen] {phase} {idx}/{total} - {pct:.1f}%",
+                end="\r",
+                flush=True,
+            )
+
     dfs = []
-    for _ in range(num_pos):
+
+    for i in range(num_pos):
         lengths = np.random.randint(12, 50, size=8)
         amp = np.random.uniform(60, 150)
         noise = np.random.uniform(1, 4)
         df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
         dfs.append(df)
+        step += 1
+        _progress("Positives", i + 1, num_pos)
+
     pattern_funcs = pattern_registry.generators()
-    for _ in range(num_pattern):
+    for i in range(num_pattern):
         segs = []
         for _ in range(np.random.randint(1, 3)):
             f, pname = random.choice(pattern_funcs)
@@ -760,7 +786,10 @@ def generate_rulebased_synthetic_with_patterns(
                     start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
         dfs.append(df)
-    for _ in range(num_neg):
+        step += 1
+        _progress("Patterns", i + 1, num_pattern)
+
+    for i in range(num_neg):
         length = np.random.randint(80, 250)
         amp = np.random.uniform(50, 120)
         noise = np.random.uniform(12, 35)
@@ -772,7 +801,17 @@ def generate_rulebased_synthetic_with_patterns(
             gap_chance=0.2,
         )
         dfs.append(df)
+        step += 1
+        _progress("Noise", i + 1, num_neg)
+
+    if log:
+        print()
+
     combined = pd.concat(dfs, ignore_index=True)
+    if log:
+        print(
+            f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}"
+        )
     return combined
 
 
