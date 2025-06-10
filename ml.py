@@ -1,11 +1,11 @@
+from __future__ import annotations
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import requests
-from levels import get_all_levels
-from fib_levels import get_fib_levels
-from pattern_registry import register_pattern, pattern_registry
 import random
+from typing import Callable, Iterable, Dict, List, Optional, Tuple
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import (
     GridSearchCV,
@@ -20,6 +20,244 @@ from tabulate import tabulate
 import os
 import argparse
 import joblib
+
+# === Pattern Registry ===
+
+
+class PatternRegistry:
+    """Registry for synthetic pattern generators."""
+
+    def __init__(self) -> None:
+        self._patterns: Dict[str, Callable[..., object]] = {}
+        self._next_wave: Dict[str, List[str]] = {}
+
+    def register(
+        self,
+        name: str,
+        generator: Callable[..., object],
+        next_wave: Optional[Iterable[str]] = None,
+    ) -> Callable[..., object]:
+        """Register a pattern generator with optional follow-up waves."""
+        self._patterns[name] = generator
+        if next_wave is not None:
+            if isinstance(next_wave, str):
+                self._next_wave[name] = [next_wave]
+            else:
+                self._next_wave[name] = list(next_wave)
+        return generator
+
+    def generators(self) -> List[Tuple[Callable[..., object], str]]:
+        """Return list of registered generators as ``(func, name)`` tuples."""
+        return [(func, name) for name, func in self._patterns.items()]
+
+    def get_next_wave(self, name: str) -> List[str]:
+        """Return configured follow-up waves for ``name``."""
+        return self._next_wave.get(name, [])
+
+
+pattern_registry = PatternRegistry()
+
+
+def register_pattern(name: str, next_wave: Optional[Iterable[str]] = None):
+    """Decorator to register a pattern generator."""
+
+    def decorator(func: Callable[..., object]):
+        pattern_registry.register(name, func, next_wave)
+        return func
+
+    return decorator
+
+
+# === Fibonacci Levels ===
+
+
+def _current_swing(df: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
+    """Return start and end timestamps for the most recent swing."""
+
+    high_idx = df["high"].idxmax()
+    low_idx = df["low"].idxmin()
+    if high_idx > low_idx:
+        return low_idx, high_idx
+    return high_idx, low_idx
+
+
+def get_fib_levels(
+    df: pd.DataFrame, timeframe: str
+) -> List[Dict[str, object]]:
+    """Return fibonacci levels for the current swing of ``df``."""
+
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise ValueError("DataFrame index must be a DatetimeIndex")
+
+    start_ts, end_ts = _current_swing(df)
+    start_price = (
+        df.loc[start_ts, "low"] if start_ts < end_ts else df.loc[start_ts, "high"]
+    )
+    end_price = (
+        df.loc[end_ts, "high"] if end_ts > start_ts else df.loc[end_ts, "low"]
+    )
+
+    if end_price >= start_price:
+        diff = end_price - start_price
+        levels = {
+            "fib_0.0": end_price,
+            "fib_0.236": end_price - diff * 0.236,
+            "fib_0.382": end_price - diff * 0.382,
+            "fib_0.5": end_price - diff * 0.5,
+            "fib_0.618": end_price - diff * 0.618,
+            "fib_0.786": end_price - diff * 0.786,
+            "fib_1.0": start_price,
+            "fib_1.618": start_price - diff * 0.618,
+            "fib_2.618": start_price - diff * 1.618,
+        }
+    else:
+        diff = start_price - end_price
+        levels = {
+            "fib_0.0": end_price,
+            "fib_0.236": end_price + diff * 0.236,
+            "fib_0.382": end_price + diff * 0.382,
+            "fib_0.5": end_price + diff * 0.5,
+            "fib_0.618": end_price + diff * 0.618,
+            "fib_0.786": end_price + diff * 0.786,
+            "fib_1.0": start_price,
+            "fib_1.618": start_price + diff * 0.618,
+            "fib_2.618": start_price + diff * 1.618,
+        }
+
+    ts = df.index[-1]
+    return [
+        {
+            "level_type": name,
+            "timeframe": timeframe.lower(),
+            "price": float(val),
+            "timestamp": ts,
+        }
+        for name, val in levels.items()
+    ]
+
+
+# === Level Calculation ===
+
+
+_TIMEFRAME_MAP = {
+    "2h": "2h",
+    "4h": "4h",
+    "8h": "8h",
+    "1d": "1D",
+    "1w": "1W",
+}
+
+
+class LevelCalculator:
+    """Calculate pivot, volume profile, equilibrium and open levels."""
+
+    def __init__(
+        self, df: pd.DataFrame, timeframe: str, n_bins: int = 30
+    ) -> None:
+        if "open" not in df.columns:
+            raise ValueError(
+                "DataFrame must contain OHLCV data with 'open' column"
+            )
+        if not isinstance(df.index, pd.DatetimeIndex):
+            raise ValueError("DataFrame index must be a DatetimeIndex")
+        self.df = df.copy()
+        self.tf = _TIMEFRAME_MAP.get(timeframe.lower())
+        if not self.tf:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+        self.n_bins = n_bins
+
+    def calculate(self) -> List[Dict[str, object]]:
+        groups = self.df.groupby(
+            pd.Grouper(freq=self.tf, label="left", closed="left")
+        )
+        levels: List[Dict[str, object]] = []
+        prev_info = None
+        for ts, g in groups:
+            if g.empty:
+                continue
+            info = self._session_info(g)
+            if prev_info is not None:
+                pivot = self._calc_pivot(prev_info, info)
+                if pivot is not None:
+                    levels.append(self._fmt(ts, "pivot", pivot))
+            vp = self._volume_profile(g)
+            levels.append(self._fmt(ts, "poc", vp["poc"]))
+            levels.append(self._fmt(ts, "vah", vp["vah"]))
+            levels.append(self._fmt(ts, "val", vp["val"]))
+            eq = (info["high"] + info["low"]) / 2
+            levels.append(self._fmt(ts, "equilibrium", eq))
+            levels.append(self._fmt(ts, "open", info["open"]))
+            prev_info = info
+        return levels
+
+    @staticmethod
+    def _session_info(g: pd.DataFrame) -> Dict[str, float]:
+        return {
+            "open": g["open"].iloc[0],
+            "close": g["close"].iloc[-1],
+            "high": g["high"].max(),
+            "low": g["low"].min(),
+        }
+
+    def _calc_pivot(
+        self, prev: Dict[str, float], cur: Dict[str, float]
+    ) -> float | None:
+        prev_open, prev_close = prev["open"], prev["close"]
+        cur_open, cur_close = cur["open"], cur["close"]
+        if prev_close == cur_open:
+            if (prev_open < prev_close and cur_open > cur_close) or (
+                prev_open > prev_close and cur_open < cur_close
+            ):
+                return cur_open
+            return None
+        if prev_open < prev_close and cur_open > cur_close:
+            return max(prev_close, cur_open)
+        if prev_open > prev_close and cur_open < cur_close:
+            return min(prev_close, cur_open)
+        return None
+
+    def _volume_profile(self, g: pd.DataFrame) -> Dict[str, float]:
+        high = g["high"].max()
+        low = g["low"].min()
+        if high == low:
+            return {"poc": high, "vah": high, "val": low}
+        bins = np.linspace(low, high, self.n_bins + 1)
+        prices = g["close"].to_numpy()
+        vols = g["volume"].to_numpy()
+        idx = np.searchsorted(bins, prices, side="right") - 1
+        idx = np.clip(idx, 0, self.n_bins - 1)
+        vol_bins = np.bincount(idx, weights=vols, minlength=self.n_bins)
+        total = vol_bins.sum()
+        csum = np.cumsum(vol_bins)
+        poc_idx = vol_bins.argmax()
+        vah_idx = np.searchsorted(csum, total * 0.70)
+        val_idx = np.searchsorted(csum, total * 0.30)
+        poc = (bins[poc_idx] + bins[poc_idx + 1]) / 2
+        vah = bins[min(vah_idx, self.n_bins - 1)]
+        val = bins[min(val_idx, self.n_bins - 1)]
+        return {"poc": float(poc), "vah": float(vah), "val": float(val)}
+
+    def _fmt(
+        self, ts: pd.Timestamp, level_type: str, price: float
+    ) -> Dict[str, object]:
+        return {
+            "level_type": level_type,
+            "timeframe": self.tf.lower(),
+            "price": float(price),
+            "timestamp": ts,
+        }
+
+
+def get_all_levels(
+    ohlcv: pd.DataFrame, timeframes: List[str]
+) -> List[Dict[str, object]]:
+    """Return a flat list of level dictionaries for the given timeframes."""
+    all_levels: List[Dict[str, object]] = []
+    for tf in timeframes:
+        calc = LevelCalculator(ohlcv, tf)
+        all_levels.extend(calc.calculate())
+    return all_levels
+
 
 # === Parameter ===
 SYMBOL = "SPXUSDT"
