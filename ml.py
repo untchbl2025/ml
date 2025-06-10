@@ -894,6 +894,7 @@ def generate_rulebased_synthetic_with_patterns(
     min_count: int = 20,
     balance_ratio: float = 0.05,
     target_per_label: int | None = None,
+    max_invalid_factor: float = 2.0,
 ) -> pd.DataFrame:
     """Generate synthetic dataset consisting of Elliott waves, patterns and
     noise samples.
@@ -1026,8 +1027,14 @@ def generate_rulebased_synthetic_with_patterns(
         if log:
             print("[DataGen] Labelverteilung nach Auff\u00fcllen:\n" + pd.Series(counts).astype(int).to_string())
 
-    combined = balance_labels(combined, ratio=balance_ratio)
+    combined = balance_labels(
+        combined,
+        ratio=balance_ratio,
+        max_invalid_factor=max_invalid_factor,
+    )
     validate_dataset(combined)
+
+    combined.index = pd.date_range("2020-01-01", periods=len(combined), freq="1h")
 
     return combined
 
@@ -1165,6 +1172,7 @@ def generate_balanced_wave_dataset(
         print("[DataGen] Labelverteilung:\n" + counts_final.to_string())
 
     validate_dataset(combined)
+    combined.index = pd.date_range("2020-01-01", periods=len(combined), freq="1h")
     return combined
 
 
@@ -1172,14 +1180,16 @@ def balance_labels(
     df: pd.DataFrame,
     ratio: float = 0.05,
     target_count: int | None = None,
+    max_invalid_factor: float = 2.0,
 ) -> pd.DataFrame:
     """Balance main wave labels and limit INVALID/N occurrence.
 
     The function oversamples existing labels or generates new short segments
     using ``_simple_wave_segment`` until each main label occurs at least
     ``target_count`` times (or ``ratio`` share if ``target_count`` is ``None``).
-    ``INVALID_WAVE`` and ``N`` are downsampled so they never exceed twice the
-    count of the rarest main label.  A failed balancing raises ``AssertionError``.
+    ``INVALID_WAVE`` and ``N`` are downsampled so they never exceed
+    ``max_invalid_factor`` times the count of the rarest main label.
+    A failed balancing raises ``AssertionError``.
     """
 
     df = df.copy()
@@ -1207,7 +1217,7 @@ def balance_labels(
     rarest_main = min(counts.get(lbl, 0) for lbl in main_labels)
     for invalid_lbl in ["INVALID_WAVE", "N"]:
         idx = df[df["wave"] == invalid_lbl].index
-        max_count = 2 * rarest_main
+        max_count = int(max_invalid_factor * rarest_main)
         if len(idx) > max_count:
             drop_idx = np.random.choice(idx, len(idx) - max_count, replace=False)
             df = df.drop(drop_idx)
@@ -1218,7 +1228,7 @@ def balance_labels(
     for lbl in main_labels:
         assert counts.get(lbl, 0) >= target, f"Label {lbl} zu selten!"
     for inv_lbl in ["INVALID_WAVE", "N"]:
-        assert counts.get(inv_lbl, 0) <= 2 * min(counts.get(lbl, 1) for lbl in main_labels), "Zu viele INVALID/N!"
+        assert counts.get(inv_lbl, 0) <= max_invalid_factor * min(counts.get(lbl, 1) for lbl in main_labels), "Zu viele INVALID/N!"
 
     return df
 
@@ -1359,8 +1369,8 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     df["returns"] = df["close"].pct_change().fillna(0)
     df["range"] = (df["high"] - df["low"]) / df["close"]
     df["body"] = (df["close"] - df["open"]).abs() / df["close"]
-    df["ma_fast"] = df["close"].rolling(5).mean().bfill()
-    df["ma_slow"] = df["close"].rolling(34).mean().bfill()
+    df["ma_fast"] = df["close"].rolling(min(5, len(df))).mean().bfill()
+    df["ma_slow"] = df["close"].rolling(min(34, len(df))).mean().bfill()
     df["ma_diff"] = df["ma_fast"] - df["ma_slow"]
     df["vol_ratio"] = df["volume"] / (df["volume"].rolling(5).mean().bfill() + 1e-6)
     df["fibo_level"] = (df["close"] - df["close"].rolling(21).min()) / (
@@ -1369,7 +1379,8 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     window = 20
     counts = df.groupby(df["wave"]).cumcount() + 1 if "wave" in df else 1
     df["wave_len_ratio"] = counts / (window)
-    df["rsi"] = calc_rsi(df["close"], period=14).bfill()
+    rsi_period = min(14, len(df))
+    df["rsi"] = calc_rsi(df["close"], period=rsi_period).bfill()
     df["rsi_z"] = zscore(df["rsi"].fillna(50))
     df["macd"], df["macd_signal"] = calc_macd(df["close"])
     df["stoch_k"], df["stoch_d"] = calc_stoch_kd(df)
@@ -1432,7 +1443,8 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
             df[f"fib_dist_{tf}"] = 1.0
             df[f"fib_near_{tf}"] = 0
     if df_4h is not None:
-        df_4h["rsi_4h"] = calc_rsi(df_4h["close"], period=14).bfill()
+        rsi4h_period = min(14, len(df_4h))
+        df_4h["rsi_4h"] = calc_rsi(df_4h["close"], period=rsi4h_period).bfill()
         df["rsi_4h"] = np.interp(
             df.index, np.linspace(0, len(df) - 1, len(df_4h)), df_4h["rsi_4h"]
         )
@@ -1450,7 +1462,11 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
         df = compute_wave_fibs(df, "wave_pred", buffer=PUFFER)
 
     df.replace([np.inf, -np.inf], np.nan, inplace=True)
+    before = len(df)
     df = df.dropna().reset_index(drop=True)
+    after = len(df)
+    if after < before:
+        print(f"[make_features] Warning: removed {before - after} rows due to NaN")
     return df
 
 
