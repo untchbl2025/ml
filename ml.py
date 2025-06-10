@@ -255,8 +255,21 @@ LIVEDATA_LEN = 1000
 TRAIN_N = 1000
 PUFFER = 0.02
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
-DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
+# Default directory to save model and dataset. When running in Google Colab and
+# Drive is mounted at ``/content/drive`` we store artefacts in ``MyDrive/ml`` so
+# they persist in the user's Drive. Otherwise fall back to the current working
+# directory.
+if os.path.exists("/content/drive"):
+    DEFAULT_SAVE_DIR = "/content/drive/MyDrive/ml"
+else:
+    DEFAULT_SAVE_DIR = "."
+
+MODEL_PATH = os.environ.get(
+    "MODEL_PATH", os.path.join(DEFAULT_SAVE_DIR, "elliott_model.joblib")
+)
+DATASET_PATH = os.environ.get(
+    "DATASET_PATH", os.path.join(DEFAULT_SAVE_DIR, "elliott_dataset.joblib")
+)
 CONFIDENCE_THRESHOLD = 0.3
 
 FEATURES_BASE = [
@@ -305,6 +318,8 @@ FEATURES_BASE = [
 
 
 def save_model(model, path):
+    """Persist ``model`` to ``path``, creating the directory if needed."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     joblib.dump(model, path)
 
 
@@ -313,6 +328,8 @@ def load_model(path):
 
 
 def save_dataset(df, path):
+    """Persist dataset ``df`` to ``path`` creating directories as required."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     joblib.dump(df, path)
 
 
