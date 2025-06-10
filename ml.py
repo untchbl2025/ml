@@ -742,7 +742,7 @@ def generate_rulebased_synthetic_with_patterns(
         if log:
             pct = (step / total_steps) * 100
             print(
-                f"[DataGen] {phase} {idx}/{total} - {pct:.1f}%",
+                f"[DataGen] [{step}/{total_steps}] {phase} {idx}/{total} - {pct:.1f}%",
                 end="\r",
                 flush=True,
             )
