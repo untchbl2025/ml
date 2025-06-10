@@ -1449,6 +1449,7 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     elif "wave_pred" in df.columns:
         df = compute_wave_fibs(df, "wave_pred", buffer=PUFFER)
 
+    df.replace([np.inf, -np.inf], np.nan, inplace=True)
     df = df.dropna().reset_index(drop=True)
     return df
 
