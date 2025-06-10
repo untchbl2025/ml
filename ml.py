@@ -1221,6 +1221,7 @@ def train_ml(
     max_samples=None,
     model_type="rf",
     feature_selection=False,
+    train_n: int = TRAIN_N,
 ):
     if os.path.exists(DATASET_PATH):
         print(yellow("Lade vorhandenes Dataset..."))
@@ -1233,7 +1234,7 @@ def train_ml(
             )
         )
         df = generate_rulebased_synthetic_with_patterns(
-            n=TRAIN_N, negative_ratio=0.15, pattern_ratio=0.35
+            n=train_n, negative_ratio=0.15, pattern_ratio=0.35
         )
         save_dataset(df, DATASET_PATH)
 
@@ -2175,6 +2176,12 @@ def main():
         action="store_true",
         help="RFECV Feature Auswahl nutzen",
     )
+    parser.add_argument(
+        "--train-samples",
+        type=int,
+        default=TRAIN_N,
+        help="Anzahl generierter Trainingssegmente",
+    )
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
@@ -2209,6 +2216,7 @@ def main():
             max_samples=args.max_samples,
             model_type=args.model,
             feature_selection=args.feature_selection,
+            train_n=args.train_samples,
         )
     try:
         run_ml_on_bitget(
