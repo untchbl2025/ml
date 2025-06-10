@@ -876,6 +876,7 @@ def generate_rulebased_synthetic_with_patterns(
     negative_ratio: float = 0.15,
     pattern_ratio: float = 0.35,
     log: bool = True,
+    min_count: int = 20,
 ) -> pd.DataFrame:
     """Generate synthetic dataset consisting of Elliott waves, patterns and
     noise samples.
@@ -958,8 +959,33 @@ def generate_rulebased_synthetic_with_patterns(
         print()
 
     combined = pd.concat(dfs, ignore_index=True)
+
+    counts = combined["wave"].value_counts()
     if log:
         print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
+        print("[DataGen] Labelverteilung:\n" + counts.to_string())
+
+    expected = ["1", "2", "3", "4", "5", "A", "B", "C"]
+    missing = [lbl for lbl in expected if counts.get(lbl, 0) < min_count]
+    if missing:
+        if log:
+            for lbl in missing:
+                print(
+                    f"[DataGen] Warnung: Wenige Samples f\u00fcr Label {lbl} "
+                    f"({counts.get(lbl,0)})"
+                )
+        seg_len = 8
+        for lbl in missing:
+            needed_rows = max(0, min_count - counts.get(lbl, 0))
+            n_segments = int(np.ceil(needed_rows / seg_len))
+            for _ in range(n_segments):
+                start = combined["close"].iloc[-1]
+                seg = _simple_wave_segment(lbl, start, length=seg_len)
+                combined = pd.concat([combined, seg], ignore_index=True)
+        counts = combined["wave"].value_counts()
+        if log:
+            print("[DataGen] Labelverteilung nach Auff\u00fcllen:\n" + counts.to_string())
+
     return combined
 
 
