@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import requests
 from levels import get_all_levels
 from fib_levels import get_fib_levels
+import random
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import GridSearchCV, TimeSeriesSplit, cross_val_score
 from sklearn.feature_selection import RFECV
@@ -535,7 +536,24 @@ def generate_negative_samples(length=100, amp=100, noise=20, outlier_chance=0.1,
     df['volume'] = np.random.uniform(100,1000,len(df))
     return df
 
-def generate_rulebased_synthetic_with_patterns(n=1000, negative_ratio=0.15, pattern_ratio=0.35):
+def _simple_wave_segment(label, start_price, length=8, noise=2):
+    """Create a short price segment for a single wave label."""
+    direction = 1 if np.random.rand() < 0.5 else -1
+    step = max(start_price * 0.02, 1)
+    prices = start_price + direction * np.cumsum(
+        np.abs(np.random.normal(step, noise, length))
+    )
+    df = pd.DataFrame({"close": prices, "wave": [label] * length})
+    df["open"] = df["close"].shift(1).fillna(df["close"][0])
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df["volume"] = np.random.uniform(100, 1000, len(df))
+    return df
+
+
+def generate_rulebased_synthetic_with_patterns(
+    n=1000, negative_ratio=0.15, pattern_ratio=0.35
+):
     num_pattern = int(n * pattern_ratio)
     num_neg = int(n * negative_ratio)
     num_pos = n - num_pattern - num_neg
@@ -547,31 +565,42 @@ def generate_rulebased_synthetic_with_patterns(n=1000, negative_ratio=0.15, patt
         df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
         dfs.append(df)
     pattern_funcs = [
-        synthetic_triangle_pattern,
-        synthetic_zigzag_pattern,
-        synthetic_flat_pattern,
-        synthetic_double_zigzag_pattern,
-        synthetic_running_flat_pattern,
-        synthetic_expanded_flat_pattern,
-        synthetic_trend_reversal_pattern,
-        synthetic_false_breakout_pattern,
-        synthetic_gap_extension_pattern,
-        synthetic_wxy_pattern,
-        synthetic_wxyxz_pattern,
-        synthetic_wxyxzy_pattern,
+        (synthetic_triangle_pattern, "TRIANGLE"),
+        (synthetic_zigzag_pattern, "ZIGZAG"),
+        (synthetic_flat_pattern, "FLAT"),
+        (synthetic_double_zigzag_pattern, "DOUBLE_ZIGZAG"),
+        (synthetic_running_flat_pattern, "RUNNING_FLAT"),
+        (synthetic_expanded_flat_pattern, "EXPANDED_FLAT"),
+        (synthetic_trend_reversal_pattern, "TREND_REVERSAL"),
+        (synthetic_false_breakout_pattern, "FALSE_BREAKOUT"),
+        (synthetic_gap_extension_pattern, "GAP_EXTENSION"),
+        (synthetic_wxy_pattern, "WXY"),
+        (synthetic_wxyxz_pattern, "WXYXZ"),
+        (synthetic_wxyxzy_pattern, "WXYXZY"),
     ]
     for _ in range(num_pattern):
         segs = []
         for _ in range(np.random.randint(1, 3)):
-            f = np.random.choice(pattern_funcs)
+            f, pname = random.choice(pattern_funcs)
             length = np.random.randint(32, 70)
             amp = np.random.uniform(60, 140)
             noise = np.random.uniform(1, 3.5)
             d = f(length=length, amp=amp, noise=noise)
             if np.random.rand() < 0.3:
-                cut = np.random.randint(len(d)//2, len(d))
+                cut = np.random.randint(len(d) // 2, len(d))
                 d = d.iloc[:cut]
             segs.append(d)
+            if pname in SPECIALPATTERN_NEXTWAVE:
+                nxt = SPECIALPATTERN_NEXTWAVE[pname]
+                nxt = nxt if isinstance(nxt, list) else [nxt]
+                start = d["close"].iloc[-1]
+                for wave in nxt:
+                    if wave == "Abschluss":
+                        continue
+                    follow_len = np.random.randint(5, 12)
+                    follow = _simple_wave_segment(wave, start, length=follow_len)
+                    segs.append(follow)
+                    start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
         dfs.append(df)
     for _ in range(num_neg):
