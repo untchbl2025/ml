@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Dict, List
 
 import pandas as pd
-import numpy as np
 
 
 def _current_swing(df: pd.DataFrame) -> tuple[pd.Timestamp, pd.Timestamp]:
