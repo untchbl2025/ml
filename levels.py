@@ -1,4 +1,5 @@
 """Utilities for calculating key price levels from OHLCV data."""
+
 from __future__ import annotations
 
 from typing import Dict, List
@@ -13,12 +14,17 @@ _TIMEFRAME_MAP = {
     "1w": "1W",
 }
 
+
 class LevelCalculator:
     """Calculate pivot, volume profile, equilibrium and open levels."""
 
-    def __init__(self, df: pd.DataFrame, timeframe: str, n_bins: int = 30) -> None:
+    def __init__(
+        self, df: pd.DataFrame, timeframe: str, n_bins: int = 30
+    ) -> None:
         if "open" not in df.columns:
-            raise ValueError("DataFrame must contain OHLCV data with 'open' column")
+            raise ValueError(
+                "DataFrame must contain OHLCV data with 'open' column"
+            )
         if not isinstance(df.index, pd.DatetimeIndex):
             raise ValueError("DataFrame index must be a DatetimeIndex")
         self.df = df.copy()
@@ -28,7 +34,9 @@ class LevelCalculator:
         self.n_bins = n_bins
 
     def calculate(self) -> List[Dict[str, object]]:
-        groups = self.df.groupby(pd.Grouper(freq=self.tf, label="left", closed="left"))
+        groups = self.df.groupby(
+            pd.Grouper(freq=self.tf, label="left", closed="left")
+        )
         levels: List[Dict[str, object]] = []
         prev_info = None
         for ts, g in groups:
@@ -58,7 +66,9 @@ class LevelCalculator:
             "low": g["low"].min(),
         }
 
-    def _calc_pivot(self, prev: Dict[str, float], cur: Dict[str, float]) -> float | None:
+    def _calc_pivot(
+        self, prev: Dict[str, float], cur: Dict[str, float]
+    ) -> float | None:
         prev_open, prev_close = prev["open"], prev["close"]
         cur_open, cur_close = cur["open"], cur["close"]
         if prev_close == cur_open:
@@ -94,7 +104,9 @@ class LevelCalculator:
         val = bins[min(val_idx, self.n_bins - 1)]
         return {"poc": float(poc), "vah": float(vah), "val": float(val)}
 
-    def _fmt(self, ts: pd.Timestamp, level_type: str, price: float) -> Dict[str, object]:
+    def _fmt(
+        self, ts: pd.Timestamp, level_type: str, price: float
+    ) -> Dict[str, object]:
         return {
             "level_type": level_type,
             "timeframe": self.tf.lower(),
@@ -103,12 +115,15 @@ class LevelCalculator:
         }
 
 
-def get_all_levels(ohlcv: pd.DataFrame, timeframes: List[str]) -> List[Dict[str, object]]:
+def get_all_levels(
+    ohlcv: pd.DataFrame, timeframes: List[str]
+) -> List[Dict[str, object]]:
     """Return a flat list of level dictionaries for the given timeframes."""
     all_levels: List[Dict[str, object]] = []
     for tf in timeframes:
         calc = LevelCalculator(ohlcv, tf)
         all_levels.extend(calc.calculate())
     return all_levels
+
 
 __all__ = ["get_all_levels", "LevelCalculator"]

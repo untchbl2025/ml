@@ -1,5 +1,6 @@
 from typing import Callable, Iterable, Dict, List, Optional, Tuple
 
+
 class PatternRegistry:
     """Registry for synthetic pattern generators."""
 
