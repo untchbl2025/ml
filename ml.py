@@ -252,7 +252,7 @@ def get_all_levels(
 
 # === Parameter ===
 SYMBOL = "SPXUSDT"
-LIVEDATA_LEN = 1000
+LIVEDATA_LEN = 10000
 TRAIN_N = 1000
 PUFFER = 0.02
 
