@@ -1701,6 +1701,24 @@ def evaluate_wave_structure(df, label_col="wave_pred"):
 
 def run_pattern_analysis(df, model, features, levels=None):
     df_feat = make_features(df, levels=levels)
+
+    missing = [f for f in features if f not in df_feat.columns]
+    wf_feats = {"wave_fib_dist", "wave_fib_near"}
+    if missing:
+        if wf_feats.issuperset(missing):
+            first_feats = [f for f in features if f not in wf_feats]
+            preds_tmp = model.predict(df_feat[first_feats])
+            df_feat["wave_pred"] = preds_tmp
+            df_feat = compute_wave_fibs(df_feat, "wave_pred", buffer=PUFFER)
+            missing = [f for f in features if f not in df_feat.columns]
+            if missing:
+                raise ValueError(
+                    "Fehlende Features f\xC3\xBCr Vorhersage: " + ", ".join(missing)
+                )
+        else:
+            raise ValueError(
+                "Fehlende Features f\xC3\xBCr Vorhersage: " + ", ".join(missing)
+            )
     preds = model.predict(df_feat[features])
     proba = model.predict_proba(df_feat[features])
     classes = [str(c) for c in model.classes_]
