@@ -979,10 +979,12 @@ def compute_wave_fibs(df, label_col="wave_pred", buffer=PUFFER):
     buffer : float, optional
         Tolerance for the ``wave_fib_near`` flag.
     """
+    df = df.copy()
     if label_col not in df.columns:
+        df["wave_fib_dist"] = np.nan
+        df["wave_fib_near"] = np.nan
         return df
 
-    df = df.copy()
     df["wave_fib_dist"] = np.nan
     df["wave_fib_near"] = np.nan
 
