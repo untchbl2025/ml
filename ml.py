@@ -1136,7 +1136,7 @@ def generate_balanced_wave_dataset(
         print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
         print("[DataGen] Labelverteilung:\n" + counts_final.to_string())
 
-    combined = balance_labels(combined, ratio=target_per_label / len(combined))
+    combined = balance_labels(combined, target_count=target_per_label)
 
     if log:
         counts_bal = combined["wave"].value_counts()
@@ -1146,21 +1146,58 @@ def generate_balanced_wave_dataset(
     return combined
 
 
-def balance_labels(df: pd.DataFrame, ratio: float = 0.05) -> pd.DataFrame:
-    """Ensure each main wave label has at least ``ratio`` share via oversampling."""
+def balance_labels(
+    df: pd.DataFrame,
+    ratio: float = 0.05,
+    target_count: int | None = None,
+) -> pd.DataFrame:
+    """Balance main wave labels and limit INVALID/N occurrence.
+
+    The function oversamples existing labels or generates new short segments
+    using ``_simple_wave_segment`` until each main label occurs at least
+    ``target_count`` times (or ``ratio`` share if ``target_count`` is ``None``).
+    ``INVALID_WAVE`` and ``N`` are downsampled so they never exceed twice the
+    count of the rarest main label.  A failed balancing raises ``AssertionError``.
+    """
+
     df = df.copy()
-    expected = ["1", "2", "3", "4", "5", "A", "B", "C"]
-    target = max(int(len(df) * ratio), 1)
-    counts = df["wave"].value_counts()
-    for lbl in expected:
+    main_labels = ["1", "2", "3", "4", "5", "A", "B", "C"]
+    target = target_count if target_count is not None else max(int(len(df) * ratio), 1)
+
+    counts = df["wave"].value_counts().to_dict()
+
+    for lbl in main_labels:
         cnt = counts.get(lbl, 0)
-        if cnt == 0:
-            continue
-        if cnt < target:
-            need = target - cnt
-            samples = df[df["wave"] == lbl]
-            extra = samples.sample(need, replace=True, random_state=42)
+        while cnt < target:
+            if cnt > 0:
+                need = target - cnt
+                samples = df[df["wave"] == lbl]
+                extra = samples.sample(need, replace=True, random_state=42)
+            else:
+                start = df["close"].iloc[-1] if not df.empty else 100.0
+                seg_len = np.random.randint(8, 16)
+                extra = _simple_wave_segment(lbl, start, length=seg_len)
             df = pd.concat([df, extra], ignore_index=True)
+            cnt += len(extra)
+            counts[lbl] = cnt
+
+    counts = df["wave"].value_counts().to_dict()
+    rarest_main = min(counts.get(lbl, 0) for lbl in main_labels)
+    for invalid_lbl in ["INVALID_WAVE", "N"]:
+        idx = df[df["wave"] == invalid_lbl].index
+        max_count = 2 * rarest_main
+        if len(idx) > max_count:
+            drop_idx = np.random.choice(idx, len(idx) - max_count, replace=False)
+            df = df.drop(drop_idx)
+
+    df = df.reset_index(drop=True)
+
+    counts = df["wave"].value_counts()
+    for lbl in main_labels:
+        assert counts.get(lbl, 0) >= target, f"Label {lbl} zu selten!"
+    for inv_lbl in ["INVALID_WAVE", "N"]:
+        assert counts.get(inv_lbl, 0) <= 2 * min(counts.get(lbl, 1) for lbl in main_labels), "Zu viele INVALID/N!"
+
     return df
 
 
