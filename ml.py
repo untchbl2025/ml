@@ -890,8 +890,7 @@ def generate_rulebased_synthetic_with_patterns(
     negative_ratio: float = 0.15,
     pattern_ratio: float = 0.35,
     log: bool = True,
-    min_count: int = 20,
-    balance_ratio: float = 0.05,
+    min_count: int = 1500,
 ) -> pd.DataFrame:
     """Generate synthetic dataset consisting of Elliott waves, patterns and
     noise samples.
@@ -916,14 +915,22 @@ def generate_rulebased_synthetic_with_patterns(
             )
 
     dfs = []
+    counts = {lbl: 0 for lbl in ["1", "2", "3", "4", "5", "A", "B", "C"]}
+
+    def _add_df(df: pd.DataFrame) -> None:
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
+        dfs.append(df)
+        vc = df["wave"].value_counts()
+        for lbl, c in vc.items():
+            if lbl in counts:
+                counts[lbl] += int(c)
 
     for i in range(num_pos):
         lengths = np.random.randint(12, 50, size=8)
         amp = np.random.uniform(60, 150)
         noise = np.random.uniform(1, 4)
         df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
-        dfs.append(df)
+        _add_df(df)
         step += 1
         _progress("Positives", i + 1, num_pos)
 
@@ -952,8 +959,7 @@ def generate_rulebased_synthetic_with_patterns(
                     segs.append(follow)
                     start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
-        dfs.append(df)
+        _add_df(df)
         step += 1
         _progress("Patterns", i + 1, num_pattern)
 
@@ -968,8 +974,7 @@ def generate_rulebased_synthetic_with_patterns(
             outlier_chance=0.2,
             gap_chance=0.2,
         )
-        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
-        dfs.append(df)
+        _add_df(df)
         step += 1
         _progress("Noise", i + 1, num_neg)
 
@@ -978,58 +983,30 @@ def generate_rulebased_synthetic_with_patterns(
 
     combined = pd.concat(dfs, ignore_index=True)
 
-    counts = combined["wave"].value_counts()
+    counts_series = pd.Series(counts)
     if log:
         print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
-        print("[DataGen] Labelverteilung:\n" + counts.to_string())
+        print("[DataGen] Labelverteilung:\n" + counts_series.to_string())
 
     expected = ["1", "2", "3", "4", "5", "A", "B", "C"]
-    missing = [lbl for lbl in expected if counts.get(lbl, 0) < min_count]
-    if missing:
-        if log:
-            for lbl in missing:
-                print(
-                    f"[DataGen] Warnung: Wenige Samples f\u00fcr Label {lbl} "
-                    f"({counts.get(lbl,0)})"
-                )
-        seg_len = 8
-        for lbl in missing:
-            needed_rows = max(0, min_count - counts.get(lbl, 0))
-            n_segments = int(np.ceil(needed_rows / seg_len))
-            for _ in range(n_segments):
-                start = combined["close"].iloc[-1]
-                seg = _simple_wave_segment(lbl, start, length=seg_len)
-                combined = pd.concat([combined, seg], ignore_index=True)
-        counts = combined["wave"].value_counts()
-        if log:
-            print("[DataGen] Labelverteilung nach Auff\u00fcllen:\n" + counts.to_string())
+    for lbl in expected:
+        while counts.get(lbl, 0) < min_count:
+            start = combined["close"].iloc[-1]
+            seg = _simple_wave_segment(lbl, start, length=8)
+            _add_df(seg)
+            combined = pd.concat([combined, seg], ignore_index=True)
+            counts_series = pd.Series(counts)
+    if log and (counts_series[expected] < min_count).any():
+        print("[DataGen] Labelverteilung nach Auff\u00fcllen:\n" + counts_series.to_string())
 
-    combined = balance_labels(combined, ratio=balance_ratio)
-    validate_dataset(combined)
+    validate_dataset(combined, min_main=min_count)
 
     return combined
 
 
-def balance_labels(df: pd.DataFrame, ratio: float = 0.05) -> pd.DataFrame:
-    """Ensure each main wave label has at least ``ratio`` share via oversampling."""
-    df = df.copy()
-    expected = ["1", "2", "3", "4", "5", "A", "B", "C"]
-    target = max(int(len(df) * ratio), 1)
-    counts = df["wave"].value_counts()
-    for lbl in expected:
-        cnt = counts.get(lbl, 0)
-        if cnt == 0:
-            continue
-        if cnt < target:
-            need = target - cnt
-            samples = df[df["wave"] == lbl]
-            extra = samples.sample(need, replace=True, random_state=42)
-            df = pd.concat([df, extra], ignore_index=True)
-    return df
 
-
-def validate_dataset(df: pd.DataFrame, range_thresh: float = 3.0) -> None:
-    """Print warnings for negative prices, extreme ranges and rare labels."""
+def validate_dataset(df: pd.DataFrame, range_thresh: float = 3.0, min_main: int | None = None) -> None:
+    """Print warnings for data issues and unbalanced labels."""
     neg_rows = (df[["open", "high", "low", "close"]] < 0).any(axis=1).sum()
     if neg_rows:
         print(f"[DataCheck] Warning: {neg_rows} rows contain negative prices")
@@ -1040,10 +1017,29 @@ def validate_dataset(df: pd.DataFrame, range_thresh: float = 3.0) -> None:
             f"[DataCheck] Warning: {extreme} rows have high-low range > {range_thresh}x close"
         )
 
-    label_counts = df["wave"].value_counts(normalize=True)
-    rare = label_counts[label_counts < 0.01].index.tolist()
+    label_counts = df["wave"].value_counts()
+    share = label_counts / len(df)
+    rare = share[share < 0.01].index.tolist()
     if rare:
         print("[DataCheck] Warning: Rare labels detected - " + ", ".join(rare))
+
+    main_labels = ["1", "2", "3", "4", "5", "A", "B", "C"]
+    if min_main is not None:
+        for lbl in main_labels:
+            if label_counts.get(lbl, 0) < min_main:
+                print(
+                    f"[DataCheck] Warning: Label {lbl} below target ({label_counts.get(lbl,0)} < {min_main})"
+                )
+
+    main_counts = label_counts[label_counts.index.isin(main_labels)]
+    if not main_counts.empty:
+        smallest = main_counts.min()
+        pattern_counts = label_counts[~label_counts.index.isin(main_labels)]
+        for lbl, cnt in pattern_counts.items():
+            if cnt > smallest * 3:
+                print(
+                    f"[DataCheck] Warning: {lbl} frequency {cnt} exceeds 3x smallest main wave {smallest}"
+                )
 
 
 def synthetic_subwaves(df, minlen=4, maxlen=9):
