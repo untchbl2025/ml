@@ -1002,7 +1002,10 @@ def generate_rulebased_synthetic_with_patterns(
     counts = Counter(combined["wave"].value_counts().to_dict())
     if log:
         print(f"[DataGen] Fertig – Gesamtanzahl Datenpunkte: {len(combined)}")
-        print("[DataGen] Labelverteilung:\n" + counts.to_string())
+        print(
+            "[DataGen] Labelverteilung:\n"
+            + pd.Series(counts).astype(int).to_string()
+        )
 
     expected = main_labels
     missing = [lbl for lbl in expected if counts.get(lbl, 0) < min_count]
