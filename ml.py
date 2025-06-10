@@ -1705,9 +1705,11 @@ def run_pattern_analysis(df, model, features, levels=None):
     missing = [f for f in features if f not in df_feat.columns]
     wf_feats = {"wave_fib_dist", "wave_fib_near"}
     if missing:
-        if wf_feats.issuperset(missing):
-            first_feats = [f for f in features if f not in wf_feats]
-            preds_tmp = model.predict(df_feat[first_feats])
+        if set(missing).issubset(wf_feats):
+            for col in wf_feats:
+                if col not in df_feat.columns:
+                    df_feat[col] = 0.0
+            preds_tmp = model.predict(df_feat[features])
             df_feat["wave_pred"] = preds_tmp
             df_feat = compute_wave_fibs(df_feat, "wave_pred", buffer=PUFFER)
             missing = [f for f in features if f not in df_feat.columns]
@@ -1842,12 +1844,15 @@ def run_ml_on_bitget(
     missing = [f for f in features if f not in df_features.columns]
 
     # Wellen-Fibo-Features hängen von Vorhersagen ab. Falls sie fehlen,
-    # zunächst ohne diese Features vorhersagen und anschließend nachberechnen.
+    # zunächst Platzhalter verwenden, erste Vorhersage durchführen und
+    # anschließend die Features korrekt berechnen.
     wf_feats = {"wave_fib_dist", "wave_fib_near"}
     if missing:
-        if wf_feats.issuperset(missing):
-            first_pass_feats = [f for f in features if f not in wf_feats]
-            pred_tmp = model.predict(df_features[first_pass_feats])
+        if set(missing).issubset(wf_feats):
+            for col in wf_feats:
+                if col not in df_features.columns:
+                    df_features[col] = 0.0
+            pred_tmp = model.predict(df_features[features])
             df_features["wave_pred"] = smooth_predictions(pred_tmp)
             df_features = compute_wave_fibs(df_features, "wave_pred", buffer=PUFFER)
             missing = [f for f in features if f not in df_features.columns]
