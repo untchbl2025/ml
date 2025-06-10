@@ -1326,8 +1326,10 @@ def run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", 
 
     # Sicherstellen, dass alle vom Modell erwarteten Features vorhanden sind
     missing = [f for f in features if f not in df_features.columns]
-    for m in missing:
-        df_features[m] = 0.0
+    if missing:
+        msg = "Fehlende Features für Vorhersage: " + ", ".join(missing)
+        print(red(msg))
+        raise ValueError(msg)
 
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
@@ -1546,8 +1548,18 @@ def main():
                                                max_samples=args.max_samples,
                                                model_type=args.model,
                                                feature_selection=args.feature_selection)
-    run_ml_on_bitget(model, features, importance, symbol=SYMBOL, interval="1H", livedata_len=LIVEDATA_LEN,
-                     extra_intervals=["2H", "4H", "1D", "1W"])
+    try:
+        run_ml_on_bitget(
+            model,
+            features,
+            importance,
+            symbol=SYMBOL,
+            interval="1H",
+            livedata_len=LIVEDATA_LEN,
+            extra_intervals=["2H", "4H", "1D", "1W"],
+        )
+    except ValueError as e:
+        print(red(str(e)))
 
 if __name__ == "__main__":
     main()
