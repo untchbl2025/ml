@@ -846,12 +846,21 @@ def generate_negative_samples(
             prices[i:] += gap
     mask = np.random.rand(length) < outlier_chance
     prices[mask] += np.random.normal(0, noise * 10, mask.sum())
+
+    # ensure no negative prices
+    prices = np.clip(prices, 0, None)
+
     labels = ["N"] * len(prices)
     n = min(len(prices), len(labels))
     df = pd.DataFrame({"close": prices[:n], "wave": labels[:n]})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df[["open", "close"]] = df[["open", "close"]].clip(lower=0)
+    df["high"] = (
+        np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    )
+    df["low"] = (
+        np.maximum(0, np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df)))
+    )
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -865,8 +874,13 @@ def _simple_wave_segment(label, start_price, length=8, noise=2):
     )
     df = pd.DataFrame({"close": prices, "wave": [label] * length})
     df["open"] = df["close"].shift(1).fillna(df["close"][0])
-    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
-    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df[["open", "close"]] = df[["open", "close"]].clip(lower=0)
+    df["high"] = (
+        np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    )
+    df["low"] = (
+        np.maximum(0, np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df)))
+    )
     df["volume"] = np.random.uniform(100, 1000, len(df))
     return df
 
@@ -877,6 +891,7 @@ def generate_rulebased_synthetic_with_patterns(
     pattern_ratio: float = 0.35,
     log: bool = True,
     min_count: int = 20,
+    balance_ratio: float = 0.05,
 ) -> pd.DataFrame:
     """Generate synthetic dataset consisting of Elliott waves, patterns and
     noise samples.
@@ -907,6 +922,7 @@ def generate_rulebased_synthetic_with_patterns(
         amp = np.random.uniform(60, 150)
         noise = np.random.uniform(1, 4)
         df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
         dfs.append(df)
         step += 1
         _progress("Positives", i + 1, num_pos)
@@ -936,6 +952,7 @@ def generate_rulebased_synthetic_with_patterns(
                     segs.append(follow)
                     start = follow["close"].iloc[-1]
         df = pd.concat(segs, ignore_index=True)
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
         dfs.append(df)
         step += 1
         _progress("Patterns", i + 1, num_pattern)
@@ -951,6 +968,7 @@ def generate_rulebased_synthetic_with_patterns(
             outlier_chance=0.2,
             gap_chance=0.2,
         )
+        df[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].clip(lower=0)
         dfs.append(df)
         step += 1
         _progress("Noise", i + 1, num_neg)
@@ -986,7 +1004,46 @@ def generate_rulebased_synthetic_with_patterns(
         if log:
             print("[DataGen] Labelverteilung nach Auff\u00fcllen:\n" + counts.to_string())
 
+    combined = balance_labels(combined, ratio=balance_ratio)
+    validate_dataset(combined)
+
     return combined
+
+
+def balance_labels(df: pd.DataFrame, ratio: float = 0.05) -> pd.DataFrame:
+    """Ensure each main wave label has at least ``ratio`` share via oversampling."""
+    df = df.copy()
+    expected = ["1", "2", "3", "4", "5", "A", "B", "C"]
+    target = max(int(len(df) * ratio), 1)
+    counts = df["wave"].value_counts()
+    for lbl in expected:
+        cnt = counts.get(lbl, 0)
+        if cnt == 0:
+            continue
+        if cnt < target:
+            need = target - cnt
+            samples = df[df["wave"] == lbl]
+            extra = samples.sample(need, replace=True, random_state=42)
+            df = pd.concat([df, extra], ignore_index=True)
+    return df
+
+
+def validate_dataset(df: pd.DataFrame, range_thresh: float = 3.0) -> None:
+    """Print warnings for negative prices, extreme ranges and rare labels."""
+    neg_rows = (df[["open", "high", "low", "close"]] < 0).any(axis=1).sum()
+    if neg_rows:
+        print(f"[DataCheck] Warning: {neg_rows} rows contain negative prices")
+
+    extreme = ((df["high"] - df["low"]) / df["close"] > range_thresh).sum()
+    if extreme:
+        print(
+            f"[DataCheck] Warning: {extreme} rows have high-low range > {range_thresh}x close"
+        )
+
+    label_counts = df["wave"].value_counts(normalize=True)
+    rare = label_counts[label_counts < 0.01].index.tolist()
+    if rare:
+        print("[DataCheck] Warning: Rare labels detected - " + ", ".join(rare))
 
 
 def synthetic_subwaves(df, minlen=4, maxlen=9):
@@ -1260,7 +1317,10 @@ def train_ml(
             )
         )
         df = generate_rulebased_synthetic_with_patterns(
-            n=train_n, negative_ratio=0.15, pattern_ratio=0.35
+            n=train_n,
+            negative_ratio=0.15,
+            pattern_ratio=0.35,
+            balance_ratio=0.05,
         )
         save_dataset(df, DATASET_PATH)
 
