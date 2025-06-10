@@ -9,6 +9,11 @@ def test_no_negative_prices():
     assert (df[["open", "high", "low", "close"]] >= 0).all().all()
 
 
+def test_no_zero_prices():
+    df = ml.generate_rulebased_synthetic_with_patterns(n=50, log=False)
+    assert (df[["open", "high", "low", "close"]] > 0).all().all()
+
+
 def test_label_distribution():
     df = ml.generate_rulebased_synthetic_with_patterns(n=50, log=False)
     counts = df['wave'].value_counts(normalize=True)
