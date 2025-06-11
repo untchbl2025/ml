@@ -369,6 +369,31 @@ def load_dataset(path):
     return joblib.load(path)
 
 
+def log_feature_stats(df: pd.DataFrame) -> Dict[str, Dict[str, float]]:
+    """Return mean, std, min and max for each column of ``df``.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Feature matrix.
+
+    Returns
+    -------
+    dict
+        Mapping of feature name to statistics.
+    """
+
+    stats_df = df.agg(["mean", "std", "min", "max"]).T
+    print(bold("\nFeature statistics:"))
+    print(
+        tabulate(
+            stats_df.reset_index().values,
+            headers=["Feature", "mean", "std", "min", "max"],
+        )
+    )
+    return stats_df.to_dict(orient="index")
+
+
 PATTERN_PROJ_FACTORS = {
     "TRIANGLE": 1.0,
     "ZIGZAG": 0.9,
@@ -1873,6 +1898,9 @@ def train_ml(
         features = [f for f, s in zip(features, selector.support_) if s]
         X = df_valid[features]
 
+    # Compute and log feature statistics of the training data
+    feature_stats = log_feature_stats(X)
+
     print(yellow("Trainiere finales Modell..."))
     with alive_it(1, disable=not log, title="Model Fit") as bar:
         model.fit(X, y)
@@ -1893,8 +1921,11 @@ def train_ml(
     else:
         importance = pd.Series(np.zeros(len(features)), index=features)
 
-    save_model({"model": model, "features": features}, MODEL_PATH)
-    return model, features, importance
+    save_model(
+        {"model": model, "features": features, "feature_stats": feature_stats},
+        MODEL_PATH,
+    )
+    return model, features, importance, feature_stats
 
 
 # === Fibo-Bereiche für Entry/TP/SL (automatisch, pro Welle) ===
@@ -2427,6 +2458,7 @@ def run_ml_on_bitget(
     model,
     features,
     importance,
+    feature_stats=None,
     symbol=SYMBOL,
     interval="1H",
     livedata_len=LIVEDATA_LEN,
@@ -2499,6 +2531,38 @@ def run_ml_on_bitget(
         msg = "Fehlende Features für Vorhersage: " + ", ".join(missing)
         print(red(msg))
         raise ValueError(msg)
+
+    live_stats = log_feature_stats(df_features[features])
+    if feature_stats is not None:
+        table = []
+        alerts = []
+        threshold = 3
+        for feat in features:
+            train = feature_stats.get(feat, {})
+            live = live_stats.get(feat, {})
+            table.append([
+                feat,
+                f"{train.get('mean', float('nan')):.4f}",
+                f"{live.get('mean', float('nan')):.4f}",
+                f"{train.get('std', float('nan')):.4f}",
+                f"{live.get('std', float('nan')):.4f}",
+            ])
+            if (
+                train.get('std', 0) > 0
+                and live
+                and abs(live.get('mean', 0) - train.get('mean', 0))
+                > threshold * train['std']
+            ):
+                alerts.append(feat)
+        print(bold("\nFeature Stats Comparison:"))
+        print(
+            tabulate(
+                table,
+                headers=["Feature", "TrainMean", "LiveMean", "TrainStd", "LiveStd"],
+            )
+        )
+        if alerts:
+            print(red("Warnung: Starke Abweichungen bei " + ", ".join(alerts)))
 
     pred_raw = model.predict(df_features[features])
     pred = smooth_predictions(pred_raw)
@@ -2903,6 +2967,7 @@ def main():
         if isinstance(obj, dict) and "model" in obj:
             model = obj["model"]
             features = obj.get("features", FEATURES_BASE)
+            feature_stats = obj.get("feature_stats")
         else:
             model = obj
             if os.path.exists(DATASET_PATH):
@@ -2914,6 +2979,7 @@ def main():
                 features = [f for f in FEATURES_BASE if f in df_tmp.columns]
             else:
                 features = FEATURES_BASE
+            feature_stats = None
         if hasattr(model, "feature_importances_"):
             importance = pd.Series(
                 model.feature_importances_, index=features
@@ -2921,7 +2987,7 @@ def main():
         else:
             importance = pd.Series(index=features, dtype=float)
     else:
-        model, features, importance = train_ml(
+        model, features, importance, feature_stats = train_ml(
             skip_grid_search=args.skip_grid_search,
             max_samples=args.max_samples,
             model_type=args.model,
@@ -2935,6 +3001,7 @@ def main():
             model,
             features,
             importance,
+            feature_stats,
             symbol=SYMBOL,
             interval="1H",
             livedata_len=LIVEDATA_LEN,
