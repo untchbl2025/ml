@@ -187,7 +187,7 @@ class LevelCalculator:
         )
         levels: List[Dict[str, object]] = []
         prev_info = None
-        for ts, g in alive_it(grouped, disable=not log):
+        for ts, g in alive_bar(grouped, disable=not log):
             if g.empty:
                 continue
             info = self._session_info(g)
@@ -268,7 +268,7 @@ def get_all_levels(
 ) -> List[Dict[str, object]]:
     """Return a flat list of level dictionaries for the given timeframes."""
     all_levels: List[Dict[str, object]] = []
-    for tf in alive_it(timeframes, disable=not log):
+    for tf in alive_bar(timeframes, disable=not log):
         calc = LevelCalculator(ohlcv, tf)
         all_levels.extend(calc.calculate(log=log))
     return all_levels
@@ -1744,7 +1744,7 @@ def train_ml(
         print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
         best_score = -np.inf
         best_params = defaults or {}
-        for params in alive_it(list(ParameterGrid(param_grid)), disable=not log):
+        for params in alive_bar(list(ParameterGrid(param_grid)), disable=not log):
             model_tmp = clone(base_model)
             model_tmp.set_params(**params)
             scores = cross_val_score(model_tmp, X, y, cv=tscv, n_jobs=-1)
