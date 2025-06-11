@@ -2071,8 +2071,16 @@ def suggest_trade(
     """
 
     entry = last_close
-    if target_range is None:
-        print(red("Kein gültiges Kursziel berechnet."))
+    if (
+        target_range is None
+        or len(target_range) != 2
+        or any(t is None for t in target_range)
+    ):
+        print(
+            red(
+                "Kein gültiges Kursziel berechnet (target_range ist None oder enthält None)."
+            )
+        )
         return None, None, None, None
 
     adj_risk = risk * probability if probability is not None else risk
