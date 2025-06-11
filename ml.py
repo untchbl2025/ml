@@ -187,7 +187,7 @@ class LevelCalculator:
         )
         levels: List[Dict[str, object]] = []
         prev_info = None
-        for ts, g in tqdm(grouped, disable=not log, leave=False):
+        for ts, g in tqdm(grouped, disable=not log, leave=true):
             if g.empty:
                 continue
             info = self._session_info(g)
@@ -268,7 +268,7 @@ def get_all_levels(
 ) -> List[Dict[str, object]]:
     """Return a flat list of level dictionaries for the given timeframes."""
     all_levels: List[Dict[str, object]] = []
-    for tf in tqdm(timeframes, disable=not log, leave=False):
+    for tf in tqdm(timeframes, disable=not log, leave=True):
         calc = LevelCalculator(ohlcv, tf)
         all_levels.extend(calc.calculate(log=log))
     return all_levels
@@ -1162,7 +1162,7 @@ def generate_balanced_elliott_dataset(
 
     dfs: List[pd.DataFrame] = []
     total_iterations = len(LABELS) * (n_per_label + n_invalid_per_label) + n_n
-    with tqdm(total=total_iterations, disable=not log, leave=False) as pbar:
+    with tqdm(total=total_iterations, disable=not log, leave=True) as pbar:
         for label in LABELS:
             for _ in range(n_per_label):
                 if label in pattern_registry._patterns:
@@ -1245,7 +1245,7 @@ def generate_rulebased_synthetic_with_patterns(
     total_steps = num_pos + num_pattern + num_neg
 
     dfs = []
-    with tqdm(total=total_steps, disable=not log, leave=False) as pbar:
+    with tqdm(total=total_steps, disable=not log, leave=True) as pbar:
         for i in range(num_pos):
             if log:
                 pbar.set_description("Positives")
@@ -1319,7 +1319,7 @@ def synthetic_subwaves(df, minlen=4, maxlen=9, *, log: bool = False):
     df = df.copy()
     subwave_id = np.zeros(len(df), dtype=int)
     i = 0
-    pbar = tqdm(total=len(df), disable=not log, leave=False)
+    pbar = tqdm(total=len(df), disable=not log, leave=true)
     while i < len(df):
         sublen = np.random.randint(minlen, maxlen)
         if i + sublen > len(df):
@@ -1355,7 +1355,7 @@ def compute_wave_fibs(
 
     start = 0
     cur = df[label_col].iloc[0]
-    pbar = tqdm(total=len(df), disable=not log, leave=False)
+    pbar = tqdm(total=len(df), disable=not log, leave=True)
     for i in range(1, len(df) + 1):
         if i == len(df) or df[label_col].iloc[i] != cur:
             end = i - 1
@@ -1546,7 +1546,7 @@ def fetch_bitget_ohlcv_auto(
     all_data = []
     end_time = None
     total = 0
-    pbar = tqdm(total=target_len, disable=not log, leave=False)
+    pbar = tqdm(total=target_len, disable=not log, leave=True)
     while total < target_len:
         url = (
             f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}"
@@ -1803,7 +1803,7 @@ def train_ml(
         X = df_valid[features]
 
     print(yellow("Trainiere finales Modell..."))
-    pbar_fit = tqdm(total=1, disable=not log, leave=False, desc="Model Fit")
+    pbar_fit = tqdm(total=1, disable=not log, leave=True, desc="Model Fit")
     model.fit(X, y)
     pbar_fit.update(1)
     pbar_fit.close()
