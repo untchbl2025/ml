@@ -24,7 +24,7 @@ import joblib
 # === Adjustable Parameters ===
 SYMBOL = "SPXUSDT"
 LIVEDATA_LEN = 50
-TRAIN_N = 10_000
+TRAIN_N = 100
 INVALID_SHARE = 0.10
 N_SHARE = 0.05
 PUFFER = 0.02
