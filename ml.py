@@ -1836,7 +1836,9 @@ def pattern_target(df_features, current_pattern, last_complete_close):
         return last_complete_close * 1.01
     close_last = df_features["close"].iloc[idx_pattern[-1]]
     if current_pattern in ["WXY", "WXYXZ", "WXYXZY"]:
-        w_idx = _latest_segment_indices(df_features, "W")
+        w_idx = _latest_segment_indices(
+            df_features, "W", min_len=5, end_buffer=5
+        )
         if len(w_idx) > 1:
             w_len = (
                 df_features["close"].iloc[w_idx[-1]]
@@ -1850,13 +1852,28 @@ def pattern_target(df_features, current_pattern, last_complete_close):
     return close_last + factor * breakout_size
 
 
-def _latest_segment_indices(df, wave_label):
-    """Return indices of the most recent contiguous segment for a wave."""
+def _latest_segment_indices(
+    df: pd.DataFrame,
+    wave_label: str,
+    *,
+    min_len: int = 1,
+    end_buffer: int = 0,
+):
+    """Return indices of the most recent contiguous segment for ``wave_label``.
+
+    The segment is considered valid only when its length is at least
+    ``min_len`` and the last index lies within ``end_buffer`` bars from the
+    end of ``df``.  Otherwise an empty array is returned.
+    """
+
     idxs = df[df["wave_pred"] == wave_label].index.to_numpy()
     if len(idxs) == 0:
         return np.array([], dtype=int)
     splits = np.split(idxs, np.where(np.diff(idxs) != 1)[0] + 1)
-    return splits[-1]
+    seg = splits[-1]
+    if len(seg) >= min_len and (df.index[-1] - seg[-1]) <= end_buffer:
+        return seg
+    return np.array([], dtype=int)
 
 
 def get_next_wave(current_wave):
@@ -1896,20 +1913,23 @@ def elliott_target(
         to nearby levels. If the nearest level differs from
         ``wave_start_price`` by less than this tolerance, the original
         target is kept.
+
+    Notes
+    -----
+    If no valid segment matching ``current_wave`` is found, a fallback target
+    of ``last_complete_close * 1.01`` is returned.
     """
     def idx(wave):
-        return _latest_segment_indices(df_features, wave)
+        return _latest_segment_indices(
+            df_features, wave, min_len=5, end_buffer=5
+        )
     start_idx = idx(current_wave)
-    wave_start_price = (
-        df_features["close"].iloc[start_idx[0]]
-        if len(start_idx) > 0
-        else last_complete_close
-    )
-    last_wave_close = (
-        df_features["close"].iloc[start_idx[-1]]
-        if len(start_idx) > 0
-        else last_complete_close
-    )
+    if len(start_idx) == 0:
+        fallback = last_complete_close * 1.01
+        return (fallback, fallback), last_complete_close, last_complete_close
+
+    wave_start_price = df_features["close"].iloc[start_idx[0]]
+    last_wave_close = df_features["close"].iloc[start_idx[-1]]
 
     target_low = target_high = None
     if str(current_wave) in PATTERN_PROJ_FACTORS:
