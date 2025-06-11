@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 import random
-from tqdm import trange, tqdm
+from tqdm import tqdm
 for i in trange(10):
 from typing import Callable, Iterable, Dict, List, Optional, Tuple
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
