@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 import random
+from tqdm.auto import tqdm
 from typing import Callable, Iterable, Dict, List, Optional, Tuple
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import (
@@ -1158,59 +1159,63 @@ def generate_balanced_elliott_dataset(
         n_invalid_per_label = int(n_per_label * invalid_share)
 
     dfs: List[pd.DataFrame] = []
+    total_iterations = len(LABELS) * (n_per_label + n_invalid_per_label) + n_n
+    with tqdm(total=total_iterations, disable=not log, leave=False) as pbar:
+        for label in LABELS:
+            for _ in range(n_per_label):
+                if label in pattern_registry._patterns:
+                    gen = pattern_registry._patterns[label]
+                    length = np.random.randint(30, 60)
+                    amp = np.random.uniform(80, 150)
+                    noise = np.random.uniform(1, 3.5)
+                    df = gen(length=length, amp=amp, noise=noise)
+                    df["wave"] = label
+                else:
+                    df = synthetic_elliott_wave_rulebased(
+                        lengths=np.random.randint(15, 40, size=8),
+                        amp=np.random.uniform(80, 150),
+                        noise=np.random.uniform(1, 3.0),
+                    )
+                    df["wave"] = label
+                dfs.append(df)
+                pbar.update(1)
 
-    for label in LABELS:
-        for _ in range(n_per_label):
-            if label in pattern_registry._patterns:
-                gen = pattern_registry._patterns[label]
-                length = np.random.randint(30, 60)
-                amp = np.random.uniform(80, 150)
-                noise = np.random.uniform(1, 3.5)
-                df = gen(length=length, amp=amp, noise=noise)
-                df["wave"] = label
+            for _ in range(n_invalid_per_label):
+                if label in pattern_registry._patterns:
+                    gen = pattern_registry._patterns[label]
+                    length = np.random.randint(30, 60)
+                    amp = np.random.uniform(80, 150)
+                    noise = np.random.uniform(4, 8)
+                    df = gen(length=length, amp=amp, noise=noise)
+                    df = df.sample(frac=1).reset_index(drop=True)
+                    df["wave"] = "INVALID_WAVE"
+                else:
+                    df = synthetic_elliott_wave_rulebased(
+                        lengths=np.random.randint(15, 40, size=8),
+                        amp=np.random.uniform(80, 150),
+                        noise=np.random.uniform(5, 10),
+                    )
+                    df = df.sample(frac=1).reset_index(drop=True)
+                    df["wave"] = "INVALID_WAVE"
                 dfs.append(df)
-            else:
-                df = synthetic_elliott_wave_rulebased(
-                    lengths=np.random.randint(15, 40, size=8),
-                    amp=np.random.uniform(80, 150),
-                    noise=np.random.uniform(1, 3.0),
-                )
-                df["wave"] = label
-                dfs.append(df)
+                pbar.update(1)
 
-        for _ in range(n_invalid_per_label):
-            if label in pattern_registry._patterns:
-                gen = pattern_registry._patterns[label]
-                length = np.random.randint(30, 60)
-                amp = np.random.uniform(80, 150)
-                noise = np.random.uniform(4, 8)
-                df = gen(length=length, amp=amp, noise=noise)
-                df = df.sample(frac=1).reset_index(drop=True)
-                df["wave"] = "INVALID_WAVE"
-                dfs.append(df)
-            else:
-                df = synthetic_elliott_wave_rulebased(
-                    lengths=np.random.randint(15, 40, size=8),
-                    amp=np.random.uniform(80, 150),
-                    noise=np.random.uniform(5, 10),
-                )
-                df = df.sample(frac=1).reset_index(drop=True)
-                df["wave"] = "INVALID_WAVE"
-                dfs.append(df)
+        for _ in range(n_n):
+            length = np.random.randint(40, 100)
+            amp = np.random.uniform(60, 140)
+            noise = np.random.uniform(15, 40)
+            df = generate_negative_samples(
+                length=length,
+                amp=amp,
+                noise=noise,
+                outlier_chance=0.2,
+                gap_chance=0.25,
+            )
+            df["wave"] = "N"
+            dfs.append(df)
+            pbar.update(1)
 
-    for _ in range(n_n):
-        length = np.random.randint(40, 100)
-        amp = np.random.uniform(60, 140)
-        noise = np.random.uniform(15, 40)
-        df = generate_negative_samples(
-            length=length,
-            amp=amp,
-            noise=noise,
-            outlier_chance=0.2,
-            gap_chance=0.25,
-        )
-        df["wave"] = "N"
-        dfs.append(df)
+        pbar.close()
 
     all_data = pd.concat(dfs, ignore_index=True)
     if log:
@@ -1236,73 +1241,66 @@ def generate_rulebased_synthetic_with_patterns(
     num_pos = n - num_pattern - num_neg
 
     total_steps = num_pos + num_pattern + num_neg
-    step = 0
-
-    def _progress(phase: str, idx: int, total: int) -> None:
-        if log:
-            pct = (step / total_steps) * 100
-            print(
-                f"[DataGen] {phase} {idx}/{total} - {pct:.1f}%",
-                end="\r",
-                flush=True,
-            )
 
     dfs = []
+    with tqdm(total=total_steps, disable=not log, leave=False) as pbar:
+        for i in range(num_pos):
+            if log:
+                pbar.set_description("Positives")
+            lengths = np.random.randint(12, 50, size=8)
+            amp = np.random.uniform(60, 150)
+            noise = np.random.uniform(1, 4)
+            df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
+            dfs.append(df)
+            pbar.update(1)
 
-    for i in range(num_pos):
-        lengths = np.random.randint(12, 50, size=8)
-        amp = np.random.uniform(60, 150)
-        noise = np.random.uniform(1, 4)
-        df = synthetic_elliott_wave_rulebased(lengths, amp, noise)
-        dfs.append(df)
-        step += 1
-        _progress("Positives", i + 1, num_pos)
+        pattern_funcs = pattern_registry.generators()
+        for i in range(num_pattern):
+            if log:
+                pbar.set_description("Patterns")
+            segs = []
+            for _ in range(np.random.randint(1, 3)):
+                f, pname = random.choice(pattern_funcs)
+                length = np.random.randint(32, 70)
+                amp = np.random.uniform(60, 140)
+                noise = np.random.uniform(1, 3.5)
+                d = f(length=length, amp=amp, noise=noise)
+                if np.random.rand() < 0.3:
+                    cut = np.random.randint(len(d) // 2, len(d))
+                    d = d.iloc[:cut]
+                segs.append(d)
+                nxt = pattern_registry.get_next_wave(pname)
+                if nxt:
+                    nxt = nxt if isinstance(nxt, list) else [nxt]
+                    start = d["close"].iloc[-1]
+                    for wave in nxt:
+                        if wave == "Abschluss":
+                            continue
+                        follow_len = np.random.randint(5, 12)
+                        follow = _simple_wave_segment(
+                            wave, start, length=follow_len
+                        )
+                        segs.append(follow)
+                        start = follow["close"].iloc[-1]
+            df = pd.concat(segs, ignore_index=True)
+            dfs.append(df)
+            pbar.update(1)
 
-    pattern_funcs = pattern_registry.generators()
-    for i in range(num_pattern):
-        segs = []
-        for _ in range(np.random.randint(1, 3)):
-            f, pname = random.choice(pattern_funcs)
-            length = np.random.randint(32, 70)
-            amp = np.random.uniform(60, 140)
-            noise = np.random.uniform(1, 3.5)
-            d = f(length=length, amp=amp, noise=noise)
-            if np.random.rand() < 0.3:
-                cut = np.random.randint(len(d) // 2, len(d))
-                d = d.iloc[:cut]
-            segs.append(d)
-            nxt = pattern_registry.get_next_wave(pname)
-            if nxt:
-                nxt = nxt if isinstance(nxt, list) else [nxt]
-                start = d["close"].iloc[-1]
-                for wave in nxt:
-                    if wave == "Abschluss":
-                        continue
-                    follow_len = np.random.randint(5, 12)
-                    follow = _simple_wave_segment(
-                        wave, start, length=follow_len
-                    )
-                    segs.append(follow)
-                    start = follow["close"].iloc[-1]
-        df = pd.concat(segs, ignore_index=True)
-        dfs.append(df)
-        step += 1
-        _progress("Patterns", i + 1, num_pattern)
-
-    for i in range(num_neg):
-        length = np.random.randint(80, 250)
-        amp = np.random.uniform(50, 120)
-        noise = np.random.uniform(12, 35)
-        df = generate_negative_samples(
-            length=length,
-            amp=amp,
-            noise=noise,
-            outlier_chance=0.2,
-            gap_chance=0.2,
-        )
-        dfs.append(df)
-        step += 1
-        _progress("Noise", i + 1, num_neg)
+        for i in range(num_neg):
+            if log:
+                pbar.set_description("Noise")
+            length = np.random.randint(80, 250)
+            amp = np.random.uniform(50, 120)
+            noise = np.random.uniform(12, 35)
+            df = generate_negative_samples(
+                length=length,
+                amp=amp,
+                noise=noise,
+                outlier_chance=0.2,
+                gap_chance=0.2,
+            )
+            dfs.append(df)
+            pbar.update(1)
 
     if log:
         print()
@@ -1533,6 +1531,7 @@ def fetch_bitget_ohlcv_auto(
     all_data = []
     end_time = None
     total = 0
+    pbar = tqdm(total=target_len, disable=not log, leave=False)
     while total < target_len:
         url = (
             f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}"
@@ -1563,6 +1562,7 @@ def fetch_bitget_ohlcv_auto(
         min_timestamp = df["timestamp"].astype(int).min()
         end_time = min_timestamp - 1
         total = sum(len(x) for x in all_data)
+        pbar.update(len(df))
     if not all_data:
         raise Exception("Keine Candles empfangen!")
     combined = pd.concat(all_data, ignore_index=True)
@@ -1574,6 +1574,7 @@ def fetch_bitget_ohlcv_auto(
     combined["timestamp"] = pd.to_datetime(
         combined["timestamp"].astype(int), unit="ms"
     )
+    pbar.close()
     combined = combined.sort_values("timestamp").reset_index(drop=True)
     combined["volume"] = combined["baseVolume"]
     if len(combined) > target_len:
