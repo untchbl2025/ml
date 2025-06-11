@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 import random 
-from alive_progress import alive_it, alive_bar
+from alive_progress import alive_bar
 from typing import Callable, Iterable, Dict, List, Optional, Tuple
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import (
