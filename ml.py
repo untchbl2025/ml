@@ -187,7 +187,7 @@ class LevelCalculator:
         )
         levels: List[Dict[str, object]] = []
         prev_info = None
-        for ts, g in tqdm(grouped, disable=not log, leave=true):
+        for ts, g in tqdm(grouped, disable=not log, leave=True):
             if g.empty:
                 continue
             info = self._session_info(g)
@@ -1319,7 +1319,7 @@ def synthetic_subwaves(df, minlen=4, maxlen=9, *, log: bool = False):
     df = df.copy()
     subwave_id = np.zeros(len(df), dtype=int)
     i = 0
-    pbar = tqdm(total=len(df), disable=not log, leave=true)
+    pbar = tqdm(total=len(df), disable=not log, leave=True)
     while i < len(df):
         sublen = np.random.randint(minlen, maxlen)
         if i + sublen > len(df):
