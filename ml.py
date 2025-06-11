@@ -24,7 +24,9 @@ import joblib
 # === Adjustable Parameters ===
 SYMBOL = "SPXUSDT"
 LIVEDATA_LEN = 50
-TRAIN_N = 100
+TRAIN_N = 10_000
+INVALID_SHARE = 0.10
+N_SHARE = 0.05
 PUFFER = 0.02
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
@@ -385,6 +387,8 @@ LABEL_MAP = {
     "N": "Kein Muster",
     "INVALID_WAVE": "Ungültig",
 }
+
+LABELS = [k for k in LABEL_MAP if k not in ("N", "INVALID_WAVE")]
 
 
 def bold(x):
@@ -958,6 +962,81 @@ def _simple_wave_segment(label, start_price, length=8, noise=2):
     return df
 
 
+def generate_balanced_elliott_dataset(
+    n_total: int = TRAIN_N,
+    invalid_share: float = INVALID_SHARE,
+    n_share: float = N_SHARE,
+    pattern_registry: PatternRegistry = pattern_registry,
+    log: bool = True,
+) -> pd.DataFrame:
+    """Generate balanced dataset across all LABELS with optional invalid/N data."""
+
+    n_n = int(n_total * n_share)
+    n_per_label = int((n_total * (1 - n_share)) // (len(LABELS) * (1 + invalid_share)))
+    n_invalid_per_label = int(n_per_label * invalid_share)
+
+    dfs: List[pd.DataFrame] = []
+
+    for label in LABELS:
+        for _ in range(n_per_label):
+            if label in pattern_registry._patterns:
+                gen = pattern_registry._patterns[label]
+                length = np.random.randint(30, 60)
+                amp = np.random.uniform(80, 150)
+                noise = np.random.uniform(1, 3.5)
+                df = gen(length=length, amp=amp, noise=noise)
+                df["wave"] = label
+                dfs.append(df)
+            else:
+                df = synthetic_elliott_wave_rulebased(
+                    lengths=np.random.randint(15, 40, size=8),
+                    amp=np.random.uniform(80, 150),
+                    noise=np.random.uniform(1, 3.0),
+                )
+                df["wave"] = label
+                dfs.append(df)
+
+        for _ in range(n_invalid_per_label):
+            if label in pattern_registry._patterns:
+                gen = pattern_registry._patterns[label]
+                length = np.random.randint(30, 60)
+                amp = np.random.uniform(80, 150)
+                noise = np.random.uniform(4, 8)
+                df = gen(length=length, amp=amp, noise=noise)
+                df = df.sample(frac=1).reset_index(drop=True)
+                df["wave"] = "INVALID_WAVE"
+                dfs.append(df)
+            else:
+                df = synthetic_elliott_wave_rulebased(
+                    lengths=np.random.randint(15, 40, size=8),
+                    amp=np.random.uniform(80, 150),
+                    noise=np.random.uniform(5, 10),
+                )
+                df = df.sample(frac=1).reset_index(drop=True)
+                df["wave"] = "INVALID_WAVE"
+                dfs.append(df)
+
+    for _ in range(n_n):
+        length = np.random.randint(40, 100)
+        amp = np.random.uniform(60, 140)
+        noise = np.random.uniform(15, 40)
+        df = generate_negative_samples(
+            length=length,
+            amp=amp,
+            noise=noise,
+            outlier_chance=0.2,
+            gap_chance=0.25,
+        )
+        df["wave"] = "N"
+        dfs.append(df)
+
+    all_data = pd.concat(dfs, ignore_index=True)
+    if log:
+        print(f"Fertiges Balancing: Gesamtanzahl: {len(all_data)}")
+        print("Label-Verteilung:\n", all_data["wave"].value_counts())
+    return all_data
+
+
 def generate_rulebased_synthetic_with_patterns(
     n: int = 1000,
     negative_ratio: float = 0.15,
@@ -1329,12 +1408,14 @@ def train_ml(
     else:
         print(
             bold(
-                "Erzeuge und kombiniere alle Muster "
-                "(Impuls, Korrektur, Triangle, usw.)..."
+                "Erzeuge balanciertes Datenset mit Muster- und "
+                "Wellenbeispielen..."
             )
         )
-        df = generate_rulebased_synthetic_with_patterns(
-            n=TRAIN_N, negative_ratio=0.15, pattern_ratio=0.35
+        df = generate_balanced_elliott_dataset(
+            n_total=TRAIN_N,
+            invalid_share=INVALID_SHARE,
+            n_share=N_SHARE,
         )
         save_dataset(df, DATASET_PATH)
 
