@@ -304,6 +304,7 @@ FEATURES_BASE = [
     "close_4h",
     "vol_4h",
     "pattern_confidence",
+    "wave_structure_score",
     "pos_in_pattern",
     "prev_wave_code",
     "next_wave_code",
@@ -375,6 +376,13 @@ LABEL_MAP = {
     "TREND_REVERSAL": "Trend Reversal",
     "FALSE_BREAKOUT": "False Breakout",
     "GAP_EXTENSION": "Gap Extension",
+    "LEADING_DIAGONAL": "Leading Diagonal",
+    "ENDING_DIAGONAL": "Ending Diagonal",
+    "RUNNING_TRIANGLE": "Running Triangle",
+    "CONTRACTING_TRIANGLE": "Contracting Triangle",
+    "FLAT_ZIGZAG": "Flat + ZigZag",
+    "TRUNCATED_5": "Truncated Fifth",
+    "EXTENDED_5": "Extended Fifth",
     "W": "W",
     "X": "Zwischenwelle",
     "Y": "Y",
@@ -507,6 +515,50 @@ def calc_pattern_confidence(series, window=10):
     return score.clip(lower=0, upper=1).bfill()
 
 
+def calc_wave_structure_score(df, label_col="wave"):
+    if label_col not in df.columns:
+        return pd.Series(1.0, index=df.index)
+
+    def wave_len(w):
+        seg = df[df[label_col] == w]
+        return abs(seg["close"].iloc[-1] - seg["close"].iloc[0]) if len(seg) > 1 else 0
+
+    w1 = df[df[label_col] == "1"]["close"]
+    w2 = df[df[label_col] == "2"]["close"]
+    w3 = df[df[label_col] == "3"]["close"]
+    w4 = df[df[label_col] == "4"]["close"]
+    w5 = df[df[label_col] == "5"]["close"]
+
+    checks = 0
+    score = 0.0
+
+    if not w1.empty and not w2.empty:
+        w1_len = wave_len("1")
+        w1_start = w1.iloc[0]
+        w2_min = w2.min()
+        checks += 1
+        if w2_min >= w1_start + 0.01 * w1_len:
+            score += 1
+
+    if not w1.empty and not w3.empty and not w5.empty:
+        w1_len = wave_len("1")
+        w3_len = wave_len("3")
+        w5_len = wave_len("5")
+        checks += 1
+        if w3_len > w1_len and w3_len > w5_len:
+            score += 1
+
+    if not w1.empty and not w4.empty:
+        w1_max = w1.max()
+        w4_min = w4.min()
+        checks += 1
+        if w4_min >= w1_max:
+            score += 1
+
+    final = score / checks if checks else 1.0
+    return pd.Series(final, index=df.index)
+
+
 # === Synthetische Muster & Generatoren ===
 def validate_impulse_elliott(df):
     def wave_len(w):
@@ -518,23 +570,27 @@ def validate_impulse_elliott(df):
     w1_len = wave_len("1")
     w3_len = wave_len("3")
     w5_len = wave_len("5")
-    if w3_len < w1_len and w3_len < w5_len:
+    if not (w3_len > w1_len * 1.05 and w3_len > w5_len * 1.05):
         df["wave"] = "INVALID_WAVE"
         return df
     w1_max = df[df["wave"] == "1"]["close"].max()
     w4_min = df[df["wave"] == "4"]["close"].min()
-    if w4_min < w1_max * 0.98:
+    if w4_min < w1_max:
         df["wave"] = "INVALID_WAVE"
         return df
     w1_start = df[df["wave"] == "1"]["close"].iloc[0]
     w2_min = df[df["wave"] == "2"]["close"].min()
-    if w2_min < w1_start:
+    w1_end = df[df["wave"] == "1"]["close"].iloc[-1]
+    w1_len = abs(w1_end - w1_start)
+    if w2_min < w1_start + 0.01 * w1_len:
         df["wave"] = "INVALID_WAVE"
         return df
     w3_max = df[df["wave"] == "3"]["close"].max()
     w5_max = df[df["wave"] == "5"]["close"].max()
     if w5_max < w3_max:
         df["wave"] = "TRUNCATED_5"
+    elif (w5_max - df[df["wave"] == "5"]["close"].min()) > 1.618 * max(w1_len, w3_len):
+        df["wave"] = "EXTENDED_5"
     return df
 
 
@@ -917,6 +973,105 @@ def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
     return df
 
 
+@register_pattern("LEADING_DIAGONAL", next_wave=["3"])
+def synthetic_leading_diagonal_pattern(length=40, amp=100, noise=3):
+    seg = length // 5
+    step = amp * 0.04
+    w1 = amp + np.cumsum(np.random.normal(step * 1.0, noise, seg))
+    w2 = w1[-1] - np.cumsum(np.abs(np.random.normal(step * 0.8, noise, seg)))
+    w3 = w2[-1] + np.cumsum(np.random.normal(step * 1.2, noise, seg))
+    w4 = w3[-1] - np.cumsum(np.abs(np.random.normal(step * 0.7, noise, seg)))
+    w5 = w4[-1] + np.cumsum(
+        np.random.normal(step * 1.1, noise, length - seg * 4)
+    )
+    prices = np.concatenate([w1, w2, w3, w4, w5])
+    labels = ["LEADING_DIAGONAL"] * len(prices)
+    df = pd.DataFrame({"close": prices, "wave": labels})
+    df["open"] = df["close"].shift(1).fillna(df["close"][0])
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df["volume"] = np.random.uniform(100, 1000, len(df))
+    return df
+
+
+@register_pattern("ENDING_DIAGONAL", next_wave=["A"])
+def synthetic_ending_diagonal_pattern(length=40, amp=100, noise=3):
+    seg = length // 5
+    step = amp * 0.05
+    w1 = amp + np.cumsum(np.random.normal(step * 1.3, noise, seg))
+    w2 = w1[-1] - np.cumsum(np.abs(np.random.normal(step * 1.1, noise, seg)))
+    w3 = w2[-1] + np.cumsum(np.random.normal(step * 1.2, noise, seg))
+    w4 = w3[-1] - np.cumsum(np.abs(np.random.normal(step, noise, seg)))
+    w5 = w4[-1] + np.cumsum(
+        np.random.normal(step * 1.4, noise, length - seg * 4)
+    )
+    prices = np.concatenate([w1, w2, w3, w4, w5])
+    labels = ["ENDING_DIAGONAL"] * len(prices)
+    df = pd.DataFrame({"close": prices, "wave": labels})
+    df["open"] = df["close"].shift(1).fillna(df["close"][0])
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df["volume"] = np.random.uniform(100, 1000, len(df))
+    return df
+
+
+@register_pattern("RUNNING_TRIANGLE", next_wave=["5", "C"])
+def synthetic_running_triangle_pattern(length=40, amp=100, noise=3):
+    seg = length // 5
+    step = amp * 0.04
+    a = amp + np.cumsum(np.random.normal(step, noise, seg))
+    b = a[-1] - np.cumsum(np.abs(np.random.normal(step * 0.8, noise, seg)))
+    c = b[-1] + np.cumsum(np.random.normal(step * 0.6, noise, seg))
+    d = c[-1] - np.cumsum(np.abs(np.random.normal(step * 0.5, noise, seg)))
+    e = d[-1] + np.cumsum(
+        np.random.normal(step * 0.7, noise, length - seg * 4)
+    )
+    prices = np.concatenate([a, b, c, d, e])
+    labels = ["RUNNING_TRIANGLE"] * len(prices)
+    df = pd.DataFrame({"close": prices, "wave": labels})
+    df["open"] = df["close"].shift(1).fillna(df["close"][0])
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df["volume"] = np.random.uniform(100, 1000, len(df))
+    return df
+
+
+@register_pattern("CONTRACTING_TRIANGLE", next_wave=["5", "C"])
+def synthetic_contracting_triangle_pattern(length=40, amp=100, noise=3):
+    seg = length // 5
+    step = amp * 0.05
+    a = amp + np.cumsum(np.random.normal(step, noise, seg))
+    b = a[-1] - np.cumsum(np.abs(np.random.normal(step * 0.9, noise, seg)))
+    c = b[-1] + np.cumsum(np.random.normal(step * 0.8, noise, seg))
+    d = c[-1] - np.cumsum(np.abs(np.random.normal(step * 0.7, noise, seg)))
+    e = d[-1] + np.cumsum(
+        np.random.normal(step * 0.6, noise, length - seg * 4)
+    )
+    prices = np.concatenate([a, b, c, d, e])
+    labels = ["CONTRACTING_TRIANGLE"] * len(prices)
+    df = pd.DataFrame({"close": prices, "wave": labels})
+    df["open"] = df["close"].shift(1).fillna(df["close"][0])
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df["volume"] = np.random.uniform(100, 1000, len(df))
+    return df
+
+
+@register_pattern("FLAT_ZIGZAG", next_wave=["C", "5"])
+def synthetic_flat_zigzag_series_pattern(length=60, amp=100, noise=3):
+    half = length // 2
+    flat = synthetic_flat_pattern(half, amp, noise)["close"]
+    zz = synthetic_zigzag_pattern(length - half, flat.iloc[-1], noise)["close"]
+    prices = np.concatenate([flat, zz])
+    labels = ["FLAT_ZIGZAG"] * len(prices)
+    df = pd.DataFrame({"close": prices, "wave": labels})
+    df["open"] = df["close"].shift(1).fillna(df["close"][0])
+    df["high"] = np.maximum(df["open"], df["close"]) + np.random.uniform(0, 1, len(df))
+    df["low"] = np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
+    df["volume"] = np.random.uniform(100, 1000, len(df))
+    return df
+
+
 def generate_negative_samples(
     length=100, amp=100, noise=20, outlier_chance=0.1, gap_chance=0.1
 ):
@@ -1290,6 +1445,12 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     df["slope_5"] = calc_slope(df["close"], window=5).bfill()
     df["trend_len"] = calc_trend_length(df["returns"]).bfill()
     df["pattern_confidence"] = calc_pattern_confidence(df["close"])
+    if "wave" in df.columns:
+        df["wave_structure_score"] = calc_wave_structure_score(df, "wave")
+    elif "wave_pred" in df.columns:
+        df["wave_structure_score"] = calc_wave_structure_score(df, "wave_pred")
+    else:
+        df["wave_structure_score"] = 1.0
     if "subwave" not in df.columns:
         df = synthetic_subwaves(df)
     if "wave" in df.columns:
@@ -1750,24 +1911,25 @@ def elliott_target(
         else last_complete_close
     )
 
-    target = None
+    target_low = target_high = None
     if str(current_wave) in PATTERN_PROJ_FACTORS:
-        target = pattern_target(
-            df_features, str(current_wave), last_complete_close
-        )
+        t = pattern_target(df_features, str(current_wave), last_complete_close)
+        target_low = target_high = t
     elif str(current_wave) == "1":
-        target = wave_start_price * 1.02
+        target_low = target_high = wave_start_price * 1.02
     elif str(current_wave) == "2":
         idx1 = idx("1")
         if len(idx1) > 0:
             high1 = df_features["close"].iloc[idx1].max()
             low2 = wave_start_price
             retracement = 0.5
-            target = high1 - retracement * (high1 - low2)
-            if target >= low2:
-                target = None
+            t = high1 - retracement * (high1 - low2)
+            if t < low2:
+                target_low = target_high = t
+            else:
+                target_low = target_high = None
         else:
-            target = last_complete_close * 0.98
+            target_low = target_high = last_complete_close * 0.98
     elif str(current_wave) == "3":
         idx1 = idx("1")
         if len(idx1) > 1 and len(start_idx) > 0:
@@ -1775,9 +1937,10 @@ def elliott_target(
                 df_features["close"].iloc[idx1[-1]]
                 - df_features["close"].iloc[idx1[0]]
             )
-            target = wave_start_price + 1.618 * w1len
+            target_low = wave_start_price + 1.618 * w1len
+            target_high = wave_start_price + 2.618 * w1len
         else:
-            target = last_complete_close * 1.05
+            target_low = target_high = last_complete_close * 1.05
     elif str(current_wave) == "4":
         idx3 = idx("3")
         if len(idx3) > 1 and len(start_idx) > 0:
@@ -1785,11 +1948,14 @@ def elliott_target(
                 df_features["close"].iloc[idx3[-1]]
                 - df_features["close"].iloc[idx3[0]]
             )
-            target = wave_start_price - 0.382 * abs(w3len)
-            if target >= wave_start_price:
-                target = None
+            t = wave_start_price - 0.382 * abs(w3len)
+            if t < wave_start_price:
+                target_low = wave_start_price - 0.382 * abs(w3len)
+                target_high = wave_start_price - 0.236 * abs(w3len)
+            else:
+                target_low = target_high = None
         else:
-            target = last_complete_close * 0.98
+            target_low = target_high = last_complete_close * 0.98
     elif str(current_wave) == "5":
         idx1 = idx("1")
         idx3 = idx("3")
@@ -1806,9 +1972,10 @@ def elliott_target(
                 proj_len = max(w1len, w3len) * 0.618
             else:
                 proj_len = w1len
-            target = wave_start_price + proj_len
+            target_low = wave_start_price + proj_len
+            target_high = wave_start_price + max(w1len, w3len)
         else:
-            target = last_complete_close * 1.02
+            target_low = target_high = last_complete_close * 1.02
     elif str(current_wave) == "A":
         idx5 = idx("5")
         if len(idx5) > 1 and len(start_idx) > 0:
@@ -1816,11 +1983,13 @@ def elliott_target(
                 df_features["close"].iloc[idx5[-1]]
                 - df_features["close"].iloc[idx5[0]]
             )
-            target = wave_start_price - w5len
-            if target >= wave_start_price:
-                target = None
+            t = wave_start_price - w5len
+            if t < wave_start_price:
+                target_low = target_high = t
+            else:
+                target_low = target_high = None
         else:
-            target = last_complete_close * 0.98
+            target_low = target_high = last_complete_close * 0.98
     elif str(current_wave) == "B":
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
@@ -1828,9 +1997,10 @@ def elliott_target(
                 df_features["close"].iloc[idxa[-1]]
                 - df_features["close"].iloc[idxa[0]]
             )
-            target = wave_start_price + 0.618 * abs(wa)
+            target_low = wave_start_price + 0.618 * abs(wa)
+            target_high = wave_start_price + 1.0 * abs(wa)
         else:
-            target = last_complete_close * 1.01
+            target_low = target_high = last_complete_close * 1.01
     elif str(current_wave) == "C":
         idxa = idx("A")
         if len(idxa) > 1 and len(start_idx) > 0:
@@ -1838,11 +2008,14 @@ def elliott_target(
                 df_features["close"].iloc[idxa[-1]]
                 - df_features["close"].iloc[idxa[0]]
             )
-            target = wave_start_price - 1.0 * abs(wa)
-            if target >= wave_start_price:
-                target = None
+            t = wave_start_price - 1.0 * abs(wa)
+            target_low = wave_start_price - 1.618 * abs(wa)
+            if t < wave_start_price:
+                target_high = t
+            else:
+                target_low = target_high = None
         else:
-            target = last_complete_close * 0.98
+            target_low = target_high = last_complete_close * 0.98
     elif str(current_wave) in ["W", "X", "Y", "Z"]:
         idxw = idx("W")
         if len(idxw) > 1 and len(start_idx) > 0:
@@ -1851,33 +2024,37 @@ def elliott_target(
                 - df_features["close"].iloc[idxw[0]]
             )
             if str(current_wave) in ["Y", "Z"]:
-                target = wave_start_price + 0.618 * wlen
+                target_low = wave_start_price + 0.618 * wlen
+                target_high = wave_start_price + 1.0 * wlen
             else:
-                target = wave_start_price - 0.382 * abs(wlen)
+                target_low = wave_start_price - 0.382 * abs(wlen)
+                target_high = wave_start_price - 0.236 * abs(wlen)
         else:
-            target = last_complete_close
+            target_low = target_high = last_complete_close
     else:
-        target = last_complete_close * 1.01
+        target_low = target_high = last_complete_close * 1.01
 
-    if target is not None and levels:
+    if target_low is not None and levels:
         prices = [lvl["price"] for lvl in levels]
         if prices:
-            nearest = min(prices, key=lambda p: abs(p - target))
+            nearest_low = min(prices, key=lambda p: abs(p - target_low))
+            nearest_high = min(prices, key=lambda p: abs(p - target_high))
             # Only snap to the nearest level when it differs from the
             # wave's start by more than the tolerance. This avoids
             # returning a target equal to the wave's start unless the
             # level is meaningfully different.
             tolerance = abs(wave_start_price) * level_tolerance
-            if abs(nearest - wave_start_price) >= tolerance:
-                target = nearest
-
-    return target, wave_start_price, last_wave_close
+            if abs(nearest_low - wave_start_price) >= tolerance:
+                target_low = nearest_low
+            if abs(nearest_high - wave_start_price) >= tolerance:
+                target_high = nearest_high
+    return (target_low, target_high), wave_start_price, last_wave_close
 
 
 def suggest_trade(
     df,
     current_wave,
-    target,
+    target_range,
     last_close,
     entry_zone=None,
     tp_zone=None,
@@ -1894,19 +2071,21 @@ def suggest_trade(
     """
 
     entry = last_close
-    if target is None:
+    if target_range is None:
         print(red("Kein gültiges Kursziel berechnet."))
         return None, None, None, None
 
     adj_risk = risk * probability if probability is not None else risk
 
-    if target > entry:
+    target_mid = sum(target_range) / 2
+
+    if target_mid > entry:
         direction = "LONG"
-        tp = target
+        tp = target_range[1]
         sl = entry * (1 - adj_risk - sl_puffer)
     else:
         direction = "SHORT"
-        tp = target
+        tp = target_range[0]
         sl = entry * (1 + adj_risk + sl_puffer)
 
     local_cols = [
@@ -1929,7 +2108,7 @@ def suggest_trade(
     print(
         bold(
             f"\n[TRADE-SETUP] {direction} | Entry: {entry:.4f} | SL: {sl:.4f} "
-            f"| TP: {tp:.4f} | PosSize: {size:.1f}x"
+            f"| TP: {target_range[0]:.4f}-{target_range[1]:.4f} | PosSize: {size:.1f}x"
         )
     )
     # Entry- und TP-Zonen werden nicht ausgegeben
@@ -1983,16 +2162,16 @@ def run_pattern_analysis(df, model, features, levels=None):
     for i, row in df_feat.iterrows():
         wave = str(row["wave_pred"])
         prob = proba[i, classes.index(wave)] if wave in classes else 0.0
-        target, start_price, _ = elliott_target(
+        target_range, start_price, _ = elliott_target(
             df_feat.iloc[: i + 1], wave, row["close"], levels=levels
         )
-        validity = "valid" if target is not None else "invalid"
+        validity = "valid" if target_range[0] is not None else "invalid"
         trade = None
         if validity == "valid":
             direction, sl, tp, entry = suggest_trade(
                 df_feat.iloc[: i + 1],
                 wave,
-                target,
+                target_range,
                 row["close"],
                 levels=levels,
                 probability=prob,
@@ -2004,7 +2183,7 @@ def run_pattern_analysis(df, model, features, levels=None):
                 "wave_id": wave,
                 "target_projection": {
                     "level": None,
-                    "price": target,
+                    "price_range": target_range,
                     "pattern": wave,
                     "probability": prob,
                 },
@@ -2190,14 +2369,14 @@ def run_ml_on_bitget(
     )
 
     # ==== Zielprojektionen ====
-    target, wave_start_price, last_wave_close = elliott_target(
+    target_range, wave_start_price, last_wave_close = elliott_target(
         df_features, current_wave, last_complete_close, levels=levels
     )
     # Bestmögliche Folgewelle anhand der ML-Wahrscheinlichkeit wählen
     next_wave_candidates = get_next_wave(current_wave)
     next_wave = None
     next_wave_start = None
-    next_target = None
+    next_target_range = None
     next_wave_prob = -1
     for cand in next_wave_candidates:
         cand_prob = proba_row[classes.index(cand)] if cand in classes else 0.0
@@ -2205,10 +2384,10 @@ def run_ml_on_bitget(
             next_wave = cand
             next_wave_prob = cand_prob
     if next_wave:
-        next_target, next_wave_start, _ = elliott_target(
+        next_target_range, next_wave_start, _ = elliott_target(
             df_features,
             next_wave,
-            target if target is not None else last_wave_close,
+            target_range[1] if target_range[1] is not None else last_wave_close,
             levels=levels,
         )
 
@@ -2216,7 +2395,7 @@ def run_ml_on_bitget(
     next_next_wave_candidates = get_next_wave(next_wave) if next_wave else []
     next_next_wave = None
     next_next_wave_start = None
-    next_next_target = None
+    next_next_target_range = None
     next_next_prob = -1
     for cand in next_next_wave_candidates:
         cand_prob = proba_row[classes.index(cand)] if cand in classes else 0.0
@@ -2224,13 +2403,17 @@ def run_ml_on_bitget(
             next_next_wave = cand
             next_next_prob = cand_prob
     if next_next_wave:
-        next_next_target, next_next_wave_start, _ = elliott_target(
+        next_next_target_range, next_next_wave_start, _ = elliott_target(
             df_features,
             next_next_wave,
             (
-                next_target
-                if next_target is not None
-                else (target if target is not None else last_wave_close)
+                next_target_range[1]
+                if next_target_range[1] is not None
+                else (
+                    target_range[1]
+                    if target_range[1] is not None
+                    else last_wave_close
+                )
             ),
             levels=levels,
         )
@@ -2240,21 +2423,21 @@ def run_ml_on_bitget(
         f"Aktuelle Welle: {current_wave} "
         f"({LABEL_MAP.get(current_wave, current_wave)}) "
         f"| Start: {wave_start_price:.4f} | "
-        f"Ziel: {target:.4f}"
+        f"Ziel: {target_range[0]:.4f}-{target_range[1]:.4f}"
     )
-    if next_wave and next_target:
+    if next_wave and next_target_range:
         print(
             f"Nächste erwartete Welle: {next_wave} "
             f"({LABEL_MAP.get(next_wave, next_wave)}) "
             f"| Start: {next_wave_start:.4f} | "
-            f"Ziel: {next_target:.4f}"
+            f"Ziel: {next_target_range[0]:.4f}-{next_target_range[1]:.4f}"
         )
-    if next_next_wave and next_next_target:
+    if next_next_wave and next_next_target_range:
         print(
             f"Darauffolgende erwartete Welle: {next_next_wave} "
             f"({LABEL_MAP.get(next_next_wave, next_next_wave)}) "
             f"| Start: {next_next_wave_start:.4f} | "
-            f"Ziel: {next_next_target:.4f}"
+            f"Ziel: {next_next_target_range[0]:.4f}-{next_next_target_range[1]:.4f}"
         )
 
     # === Breakout Zone (letzte Patternrange) ===
@@ -2266,8 +2449,8 @@ def run_ml_on_bitget(
         breakout_zone = (low, high)
 
     # === Trade-Setup Output ===
-    trade_wave = str(next_wave) if next_target else str(current_wave)
-    trade_target = next_target if next_target else target
+    trade_wave = str(next_wave) if next_target_range else str(current_wave)
+    trade_target_range = next_target_range if next_target_range else target_range
     if trade_wave in classes:
         trade_wave_idx = classes.index(trade_wave)
         trade_prob = proba_row[trade_wave_idx]
@@ -2295,7 +2478,7 @@ def run_ml_on_bitget(
     direction, sl, tp, entry = suggest_trade(
         df_features,
         trade_wave,
-        trade_target,
+        trade_target_range,
         last_complete_close,
         entry_zone,
         tp_zone,
@@ -2322,21 +2505,21 @@ def run_ml_on_bitget(
         label="WaveClass",
         alpha=0.65,
     )
-    if target is not None:
+    if target_range[0] is not None:
         plt.axhline(
-            target,
+            sum(target_range) / 2,
             color="black",
             linestyle="--",
             linewidth=1.5,
-            label=f"Zielprojektion {current_wave} {target:.4f}",
+            label=f"Zielprojektion {current_wave} {target_range[0]:.4f}-{target_range[1]:.4f}",
         )
-    if next_wave and next_target:
+    if next_wave and next_target_range:
         plt.axhline(
-            next_target,
+            sum(next_target_range) / 2,
             color="grey",
             linestyle=":",
             linewidth=1.3,
-            label=f"Nächste Welle {next_wave} Ziel {next_target:.4f}",
+            label=f"Nächste Welle {next_wave} Ziel {next_target_range[0]:.4f}-{next_target_range[1]:.4f}",
         )
     # Breakout-Zone Highlight
     if breakout_zone:
