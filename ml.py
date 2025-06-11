@@ -5,7 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 import random 
-from alive_progress import alive_bar
+from alive_progress import alive_it, alive_bar
 from typing import Callable, Iterable, Dict, List, Optional, Tuple
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import (
@@ -187,7 +187,7 @@ class LevelCalculator:
         )
         levels: List[Dict[str, object]] = []
         prev_info = None
-        for ts, g in alive_bar(grouped, disable=not log):
+        for ts, g in alive_it(grouped, disable=not log):
             if g.empty:
                 continue
             info = self._session_info(g)
@@ -268,7 +268,7 @@ def get_all_levels(
 ) -> List[Dict[str, object]]:
     """Return a flat list of level dictionaries for the given timeframes."""
     all_levels: List[Dict[str, object]] = []
-    for tf in alive_bar(timeframes, disable=not log):
+    for tf in alive_it(timeframes, disable=not log):
         calc = LevelCalculator(ohlcv, tf)
         all_levels.extend(calc.calculate(log=log))
     return all_levels
@@ -1162,7 +1162,7 @@ def generate_balanced_elliott_dataset(
 
     dfs: List[pd.DataFrame] = []
     total_iterations = len(LABELS) * (n_per_label + n_invalid_per_label) + n_n
-    with alive_bar(total_iterations, disable=not log) as bar:
+    with alive_it(total_iterations, disable=not log) as bar:
         for label in LABELS:
             for _ in range(n_per_label):
                 if label in pattern_registry._patterns:
@@ -1244,7 +1244,7 @@ def generate_rulebased_synthetic_with_patterns(
     total_steps = num_pos + num_pattern + num_neg
 
     dfs = []
-    with alive_bar(total_steps, disable=not log) as bar:
+    with alive_it(total_steps, disable=not log) as bar:
         for i in range(num_pos):
             if log:
                 bar.title = "Positives"
@@ -1318,7 +1318,7 @@ def synthetic_subwaves(df, minlen=4, maxlen=9, *, log: bool = False):
     df = df.copy()
     subwave_id = np.zeros(len(df), dtype=int)
     i = 0
-    with alive_bar(len(df), disable=not log) as bar:
+    with alive_it(len(df), disable=not log) as bar:
         while i < len(df):
             sublen = np.random.randint(minlen, maxlen)
             if i + sublen > len(df):
@@ -1353,7 +1353,7 @@ def compute_wave_fibs(
 
     start = 0
     cur = df[label_col].iloc[0]
-    with alive_bar(len(df), disable=not log) as bar:
+    with alive_it(len(df), disable=not log) as bar:
         for i in range(1, len(df) + 1):
             if i == len(df) or df[label_col].iloc[i] != cur:
                 end = i - 1
@@ -1543,7 +1543,7 @@ def fetch_bitget_ohlcv_auto(
     all_data = []
     end_time = None
     total = 0
-    with alive_bar(target_len, disable=not log) as bar:
+    with alive_it(target_len, disable=not log) as bar:
         while total < target_len:
             url = (
                 f"https://api.bitget.com/api/v2/mix/market/candles?symbol={symbol}"
@@ -1744,7 +1744,7 @@ def train_ml(
         print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
         best_score = -np.inf
         best_params = defaults or {}
-        for params in alive_bar(list(ParameterGrid(param_grid)), disable=not log):
+        for params in alive_it(list(ParameterGrid(param_grid)), disable=not log):
             model_tmp = clone(base_model)
             model_tmp.set_params(**params)
             scores = cross_val_score(model_tmp, X, y, cv=tscv, n_jobs=-1)
@@ -1799,7 +1799,7 @@ def train_ml(
         X = df_valid[features]
 
     print(yellow("Trainiere finales Modell..."))
-    with alive_bar(1, disable=not log, title="Model Fit") as bar:
+    with alive_it(1, disable=not log, title="Model Fit") as bar:
         model.fit(X, y)
         bar()
 
