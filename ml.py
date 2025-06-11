@@ -2425,7 +2425,13 @@ def run_ml_on_bitget(
         f"| Start: {wave_start_price:.4f} | "
         f"Ziel: {target_range[0]:.4f}-{target_range[1]:.4f}"
     )
-    if next_wave and next_target_range and next_wave_start is not None:
+    if (
+        next_wave
+        and next_target_range
+        and next_wave_start is not None
+        and next_target_range[0] is not None
+        and next_target_range[1] is not None
+    ):
         print(
             f"Nächste erwartete Welle: {next_wave} "
             f"({LABEL_MAP.get(next_wave, next_wave)}) "
@@ -2433,11 +2439,13 @@ def run_ml_on_bitget(
             f"Ziel: {next_target_range[0]:.4f}-{next_target_range[1]:.4f}"
         )
     elif next_wave:
-        print("Nächste Welle noch nicht erkannt.")
+        print("Nächste Welle noch nicht erkannt oder keine Zielprojektion möglich.")
     if (
         next_next_wave
         and next_next_target_range
         and next_next_wave_start is not None
+        and next_next_target_range[0] is not None
+        and next_next_target_range[1] is not None
     ):
         print(
             f"Darauffolgende erwartete Welle: {next_next_wave} "
@@ -2446,7 +2454,7 @@ def run_ml_on_bitget(
             f"Ziel: {next_next_target_range[0]:.4f}-{next_next_target_range[1]:.4f}"
         )
     elif next_next_wave:
-        print("Übernächste Welle noch nicht erkannt.")
+        print("Übernächste Welle noch nicht erkannt oder keine Zielprojektion möglich.")
 
     # === Breakout Zone (letzte Patternrange) ===
     idx_pattern = df_features[df_features["wave_pred"] == current_wave].index
