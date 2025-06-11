@@ -12,7 +12,9 @@ from sklearn.model_selection import (
     GridSearchCV,
     TimeSeriesSplit,
     cross_val_score,
+    ParameterGrid,
 )
+from sklearn.base import clone
 from sklearn.feature_selection import RFECV
 from xgboost import XGBClassifier
 from lightgbm import LGBMClassifier
@@ -179,13 +181,13 @@ class LevelCalculator:
             raise ValueError(f"Unsupported timeframe: {timeframe}")
         self.n_bins = n_bins
 
-    def calculate(self) -> List[Dict[str, object]]:
-        groups = self.df.groupby(
-            pd.Grouper(freq=self.tf, label="left", closed="left")
+    def calculate(self, *, log: bool = False) -> List[Dict[str, object]]:
+        grouped = list(
+            self.df.groupby(pd.Grouper(freq=self.tf, label="left", closed="left"))
         )
         levels: List[Dict[str, object]] = []
         prev_info = None
-        for ts, g in groups:
+        for ts, g in tqdm(grouped, disable=not log, leave=False):
             if g.empty:
                 continue
             info = self._session_info(g)
@@ -262,13 +264,13 @@ class LevelCalculator:
 
 
 def get_all_levels(
-    ohlcv: pd.DataFrame, timeframes: List[str]
+    ohlcv: pd.DataFrame, timeframes: List[str], *, log: bool = False
 ) -> List[Dict[str, object]]:
     """Return a flat list of level dictionaries for the given timeframes."""
     all_levels: List[Dict[str, object]] = []
-    for tf in timeframes:
+    for tf in tqdm(timeframes, disable=not log, leave=False):
         calc = LevelCalculator(ohlcv, tf)
-        all_levels.extend(calc.calculate())
+        all_levels.extend(calc.calculate(log=log))
     return all_levels
 
 
@@ -1313,23 +1315,26 @@ def generate_rulebased_synthetic_with_patterns(
     return combined
 
 
-def synthetic_subwaves(df, minlen=4, maxlen=9):
+def synthetic_subwaves(df, minlen=4, maxlen=9, *, log: bool = False):
     df = df.copy()
     subwave_id = np.zeros(len(df), dtype=int)
     i = 0
-    wave_counter = 1
+    pbar = tqdm(total=len(df), disable=not log, leave=False)
     while i < len(df):
         sublen = np.random.randint(minlen, maxlen)
         if i + sublen > len(df):
             sublen = len(df) - i
         subwave_id[i: i + sublen] = np.arange(1, sublen + 1)
         i += sublen
-        wave_counter += 1
+        pbar.update(sublen)
+    pbar.close()
     df["subwave"] = subwave_id[: len(df)]
     return df
 
 
-def compute_wave_fibs(df, label_col="wave_pred", buffer=PUFFER):
+def compute_wave_fibs(
+    df, label_col: str = "wave_pred", buffer: float = PUFFER, *, log: bool = False
+):
     """Add fibonacci levels per wave segment to ``df``.
 
     Parameters
@@ -1350,6 +1355,7 @@ def compute_wave_fibs(df, label_col="wave_pred", buffer=PUFFER):
 
     start = 0
     cur = df[label_col].iloc[0]
+    pbar = tqdm(total=len(df), disable=not log, leave=False)
     for i in range(1, len(df) + 1):
         if i == len(df) or df[label_col].iloc[i] != cur:
             end = i - 1
@@ -1393,15 +1399,24 @@ def compute_wave_fibs(df, label_col="wave_pred", buffer=PUFFER):
                 min_dist / closes <= buffer
             ).astype(int)
 
+            pbar.update(end - start + 1)
             start = i
             if i < len(df):
                 cur = df[label_col].iloc[i]
 
+    pbar.close()
     return df
 
 
 # === Feature Engineering mit 4H-Integration ===
-def make_features(df, df_4h=None, levels=None, fib_levels=None):
+def make_features(
+    df,
+    df_4h=None,
+    levels=None,
+    fib_levels=None,
+    *,
+    log: bool = False,
+):
     df = df.copy()
     df["returns"] = df["close"].pct_change().fillna(0)
     df["range"] = (df["high"] - df["low"]) / df["close"]
@@ -1450,7 +1465,7 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
     else:
         df["wave_structure_score"] = 1.0
     if "subwave" not in df.columns:
-        df = synthetic_subwaves(df)
+        df = synthetic_subwaves(df, log=log)
     if "wave" in df.columns:
         idx = df.groupby("wave").cumcount()
         total = df.groupby("wave")["wave"].transform("count").replace(0, 1)
@@ -1504,9 +1519,9 @@ def make_features(df, df_4h=None, levels=None, fib_levels=None):
 
     # Local fib levels for actual or predicted waves
     if "wave" in df.columns:
-        df = compute_wave_fibs(df, "wave", buffer=PUFFER)
+        df = compute_wave_fibs(df, "wave", buffer=PUFFER, log=log)
     elif "wave_pred" in df.columns:
-        df = compute_wave_fibs(df, "wave_pred", buffer=PUFFER)
+        df = compute_wave_fibs(df, "wave_pred", buffer=PUFFER, log=log)
 
     df = df.dropna().reset_index(drop=True)
     return df
@@ -1592,6 +1607,8 @@ def train_ml(
     feature_selection=False,
     test_mode: bool = False,
     test_label_limit: int = 100,
+    *,
+    log: bool = True,
 ):
     """Train machine learning model on generated Elliott wave data.
 
@@ -1641,8 +1658,8 @@ def train_ml(
     # datasets. The absolute values do not matter, only the ordering is
     # relevant for feature generation.
     df.index = pd.date_range("1900-01-01", periods=len(df), freq="1h")
-    levels = get_all_levels(df, ["2H", "4H", "1D", "1W"])
-    df = make_features(df, levels=levels)
+    levels = get_all_levels(df, ["2H", "4H", "1D", "1W"], log=log)
+    df = make_features(df, levels=levels, log=log)
     df_valid = df[~df["wave"].isin(["X", "INVALID_WAVE"])].reset_index(
         drop=True
     )
@@ -1728,13 +1745,20 @@ def train_ml(
     base_model, param_grid, defaults = create_model_params(model_type)
 
     if not skip_grid_search and param_grid:
-        grid = GridSearchCV(base_model, param_grid, cv=tscv, n_jobs=-1)
         print(yellow("Starte GridSearch zur Hyperparameteroptimierung..."))
-        grid.fit(X, y)
-        best_params = grid.best_params_
+        best_score = -np.inf
+        best_params = defaults or {}
+        for params in tqdm(list(ParameterGrid(param_grid)), disable=not log):
+            model_tmp = clone(base_model)
+            model_tmp.set_params(**params)
+            scores = cross_val_score(model_tmp, X, y, cv=tscv, n_jobs=-1)
+            score = scores.mean()
+            if score > best_score:
+                best_score = score
+                best_params = params
         print(
             green(
-                f"Beste CV-Genauigkeit: {grid.best_score_:.3f} "
+                f"Beste CV-Genauigkeit: {best_score:.3f} "
                 f"| Beste Parameter: {best_params}"
             )
         )
@@ -1779,7 +1803,10 @@ def train_ml(
         X = df_valid[features]
 
     print(yellow("Trainiere finales Modell..."))
+    pbar_fit = tqdm(total=1, disable=not log, leave=False, desc="Model Fit")
     model.fit(X, y)
+    pbar_fit.update(1)
+    pbar_fit.close()
 
     cv_scores = cross_val_score(model, X, y, cv=tscv, n_jobs=-1)
     print(
@@ -2183,14 +2210,14 @@ def evaluate_wave_structure(df, label_col="wave_pred"):
     return True
 
 
-def run_pattern_analysis(df, model, features, levels=None):
-    df_feat = make_features(df, levels=levels)
+def run_pattern_analysis(df, model, features, levels=None, *, log: bool = False):
+    df_feat = make_features(df, levels=levels, log=log)
     preds = model.predict(df_feat[features])
     proba = model.predict_proba(df_feat[features])
     classes = [str(c) for c in model.classes_]
     results = []
     df_feat["wave_pred"] = preds
-    df_feat = compute_wave_fibs(df_feat, "wave_pred", buffer=PUFFER)
+    df_feat = compute_wave_fibs(df_feat, "wave_pred", buffer=PUFFER, log=log)
     for i, row in df_feat.iterrows():
         wave = str(row["wave_pred"])
         prob = proba[i, classes.index(wave)] if wave in classes else 0.0
@@ -2249,6 +2276,8 @@ def run_ml_on_bitget(
     interval="1H",
     livedata_len=LIVEDATA_LEN,
     extra_intervals=None,
+    *,
+    log: bool = True,
 ):
     df_1h = fetch_bitget_ohlcv_auto(
         symbol, interval, target_len=livedata_len, page_limit=1000, log=True
@@ -2289,7 +2318,7 @@ def run_ml_on_bitget(
     levels_base = df_1h.copy()
     levels_base["timestamp"] = pd.to_datetime(levels_base["timestamp"])
     levels_base = levels_base.set_index("timestamp")
-    levels = get_all_levels(levels_base, ["2H", "4H", "1D", "1W"])
+    levels = get_all_levels(levels_base, ["2H", "4H", "1D", "1W"], log=log)
 
     fib_levels = {}
     if df_1d is not None:
@@ -2306,7 +2335,7 @@ def run_ml_on_bitget(
         levels.extend(fl)
 
     df_features = make_features(
-        df_1h, df_4h, levels=levels, fib_levels=fib_levels
+        df_1h, df_4h, levels=levels, fib_levels=fib_levels, log=log
     )
 
     # Sicherstellen, dass alle vom Modell erwarteten Features vorhanden sind
@@ -2322,7 +2351,9 @@ def run_ml_on_bitget(
     classes = [str(c) for c in model.classes_]
     df_features["wave_pred_raw"] = pred_raw
     df_features["wave_pred"] = pred
-    df_features = compute_wave_fibs(df_features, "wave_pred", buffer=PUFFER)
+    df_features = compute_wave_fibs(
+        df_features, "wave_pred", buffer=PUFFER, log=log
+    )
     proba_row = pred_proba[-1]
     current_wave = df_features["wave_pred"].iloc[-1]
     main_wave = str(pred[-1])
@@ -2678,7 +2709,7 @@ def main():
             model = obj
             if os.path.exists(DATASET_PATH):
                 df_tmp = load_dataset(DATASET_PATH)
-                df_tmp = make_features(df_tmp)
+                df_tmp = make_features(df_tmp, log=True)
                 df_tmp = df_tmp[
                     ~df_tmp["wave"].isin(["X", "INVALID_WAVE"])
                 ].reset_index(drop=True)
@@ -2699,6 +2730,7 @@ def main():
             feature_selection=args.feature_selection,
             test_mode=args.test_mode,
             test_label_limit=args.test_label_limit,
+            log=True,
         )
     try:
         run_ml_on_bitget(
@@ -2709,6 +2741,7 @@ def main():
             interval="1H",
             livedata_len=LIVEDATA_LEN,
             extra_intervals=["2H", "4H", "1D", "1W"],
+            log=True,
         )
     except ValueError as e:
         print(red(str(e)))
