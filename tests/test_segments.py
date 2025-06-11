@@ -9,7 +9,7 @@ if 'lightgbm' not in sys.modules:
     sys.modules['lightgbm'] = types.ModuleType('lightgbm')
     sys.modules['lightgbm'].LGBMClassifier = object
 
-from ml import _latest_segment_indices, elliott_target
+from ml import _latest_segment_indices, elliott_target, elliott_target_market_relative
 
 
 def test_latest_segment_indices_fresh():
@@ -36,3 +36,15 @@ def test_elliott_target_fallback():
     )
     assert target[0] == pytest.approx(8.0 * 1.01)
     assert target[1] == pytest.approx(8.0 * 1.01)
+
+
+def test_elliott_target_market_relative_basic():
+    df = pd.DataFrame({
+        "close": [100, 110, 120, 130, 140],
+        "wave_pred": ["1", "1", "1", "3", "3"],
+    })
+    target, start_price, last_close = elliott_target_market_relative(
+        df, "3", last_close=140
+    )
+    assert target[0] == pytest.approx(172.36, rel=1e-2)
+    assert target[1] == pytest.approx(192.36, rel=1e-2)

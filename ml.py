@@ -2123,7 +2123,81 @@ def elliott_target(
                 target_low = nearest_low
             if abs(nearest_high - wave_start_price) >= tolerance:
                 target_high = nearest_high
+
     return (target_low, target_high), wave_start_price, last_wave_close
+
+
+def elliott_target_market_relative(
+    df_features,
+    current_wave,
+    last_close,
+    wave1_len=None,
+    wave3_len=None,
+    *,
+    fallback_mult=0.015
+):
+    """Market-price relative Elliott target projection.
+
+    Parameters
+    ----------
+    df_features : DataFrame
+        Feature dataframe containing OHLC data.
+    current_wave : str
+        Wave label to project the target for.
+    last_close : float
+        Current real market price used as reference point.
+    wave1_len : float, optional
+        Explicit length of wave 1 if already known.
+    wave3_len : float, optional
+        Explicit length of wave 3 if already known.
+    fallback_mult : float, optional
+        Fallback percentage for targets when no wave lengths are found.
+    """
+
+    if wave1_len is None or wave3_len is None:
+        w1_idx = df_features[df_features["wave_pred"] == "1"].index
+        w3_idx = df_features[df_features["wave_pred"] == "3"].index
+        if len(w1_idx) > 1:
+            wave1_len = abs(
+                df_features["close"].iloc[w1_idx[-1]]
+                - df_features["close"].iloc[w1_idx[0]]
+            )
+        else:
+            wave1_len = last_close * 0.01
+        if len(w3_idx) > 1:
+            wave3_len = abs(
+                df_features["close"].iloc[w3_idx[-1]]
+                - df_features["close"].iloc[w3_idx[0]]
+            )
+        else:
+            wave3_len = wave1_len
+
+    if current_wave == "1":
+        t_low = t_high = last_close * (1 + 1.0 * fallback_mult)
+    elif current_wave == "2":
+        t_low = last_close - wave1_len * 0.5
+        t_high = last_close - wave1_len * 0.382
+    elif current_wave == "3":
+        t_low = last_close + 1.618 * wave1_len
+        t_high = last_close + 2.618 * wave1_len
+    elif current_wave == "4":
+        t_low = last_close - 0.382 * wave3_len
+        t_high = last_close - 0.236 * wave3_len
+    elif current_wave == "5":
+        base = max(wave1_len, wave3_len)
+        t_low = last_close + 0.618 * base
+        t_high = last_close + 1.0 * base
+    elif current_wave in ["A", "B", "C"]:
+        t_low = last_close * (1 - 1.0 * fallback_mult)
+        t_high = last_close * (1 + 1.0 * fallback_mult)
+    else:
+        t_low = last_close * (1 - 1.5 * fallback_mult)
+        t_high = last_close * (1 + 1.5 * fallback_mult)
+
+    min_price, max_price = last_close * 0.5, last_close * 1.5
+    t_low = float(np.clip(t_low, min_price, max_price))
+    t_high = float(np.clip(t_high, min_price, max_price))
+    return (t_low, t_high), last_close, last_close
 
 
 def suggest_trade(
@@ -2245,8 +2319,8 @@ def run_pattern_analysis(df, model, features, levels=None, *, log: bool = False)
     for i, row in df_feat.iterrows():
         wave = str(row["wave_pred"])
         prob = proba[i, classes.index(wave)] if wave in classes else 0.0
-        target_range, start_price, _ = elliott_target(
-            df_feat.iloc[: i + 1], wave, row["close"], levels=levels
+        target_range, start_price, _ = elliott_target_market_relative(
+            df_feat.iloc[: i + 1], wave, row["close"]
         )
         validity = "valid" if target_range[0] is not None else "invalid"
         trade = None
@@ -2456,8 +2530,8 @@ def run_ml_on_bitget(
     )
 
     # ==== Zielprojektionen ====
-    target_range, wave_start_price, last_wave_close = elliott_target(
-        df_features, current_wave, last_complete_close, levels=levels
+    target_range, wave_start_price, last_wave_close = elliott_target_market_relative(
+        df_features, current_wave, last_complete_close
     )
     # Bestmögliche Folgewelle anhand der ML-Wahrscheinlichkeit wählen
     next_wave_candidates = get_next_wave(current_wave)
@@ -2471,11 +2545,10 @@ def run_ml_on_bitget(
             next_wave = cand
             next_wave_prob = cand_prob
     if next_wave:
-        next_target_range, next_wave_start, _ = elliott_target(
+        next_target_range, next_wave_start, _ = elliott_target_market_relative(
             df_features,
             next_wave,
             target_range[1] if target_range[1] is not None else last_wave_close,
-            levels=levels,
         )
 
     # Gleiches Vorgehen für die übernächste Welle
@@ -2490,7 +2563,7 @@ def run_ml_on_bitget(
             next_next_wave = cand
             next_next_prob = cand_prob
     if next_next_wave:
-        next_next_target_range, next_next_wave_start, _ = elliott_target(
+        next_next_target_range, next_next_wave_start, _ = elliott_target_market_relative(
             df_features,
             next_next_wave,
             (
@@ -2502,7 +2575,6 @@ def run_ml_on_bitget(
                     else last_wave_close
                 )
             ),
-            levels=levels,
         )
 
     print(bold("\n==== ZIELPROJEKTIONEN ===="))
