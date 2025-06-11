@@ -1636,7 +1636,10 @@ def train_ml(
     counts.columns = ['wave', 'count']
     print(bold("Wave/Pattern Verteilung:"))
     print(tabulate(counts.values, headers=['Wave', 'Count']))
-    df.index = pd.date_range("2020-01-01", periods=len(df), freq="1h")
+    # Use an early start date to avoid pandas datetime overflow for large
+    # datasets. The absolute values do not matter, only the ordering is
+    # relevant for feature generation.
+    df.index = pd.date_range("1900-01-01", periods=len(df), freq="1h")
     levels = get_all_levels(df, ["2H", "4H", "1D", "1W"])
     df = make_features(df, levels=levels)
     df_valid = df[~df["wave"].isin(["X", "INVALID_WAVE"])].reset_index(
