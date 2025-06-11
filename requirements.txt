@@ -9,4 +9,4 @@ joblib
 xgboost
 lightgbm
 scipy
-tqdm
+alive-progress
