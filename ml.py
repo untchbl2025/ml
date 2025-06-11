@@ -312,8 +312,6 @@ FEATURES_BASE = [
     "fib_near_1d",
     "fib_dist_1w",
     "fib_near_1w",
-    "wave_fib_dist",
-    "wave_fib_near",
 ]
 
 
