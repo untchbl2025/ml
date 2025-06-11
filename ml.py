@@ -2537,7 +2537,12 @@ def run_ml_on_bitget(
             linewidth=1.5,
             label=f"Zielprojektion {current_wave} {target_range[0]:.4f}-{target_range[1]:.4f}",
         )
-    if next_wave and next_target_range:
+    if (
+        next_wave
+        and next_target_range
+        and next_target_range[0] is not None
+        and next_target_range[1] is not None
+    ):
         plt.axhline(
             sum(next_target_range) / 2,
             color="grey",
