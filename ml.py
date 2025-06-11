@@ -24,7 +24,7 @@ import joblib
 # === Adjustable Parameters ===
 SYMBOL = "SPXUSDT"
 LIVEDATA_LEN = 50
-TRAIN_N = 2000
+TRAIN_N = 100
 PUFFER = 0.02
 
 MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
