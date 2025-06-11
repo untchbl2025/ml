@@ -5,7 +5,36 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import requests
 import random 
-from alive_progress import alive_it, alive_bar
+import contextlib
+
+try:
+    from alive_progress import alive_it as _alive_it, alive_bar as _alive_bar
+except Exception:  # pragma: no cover - fallback when alive_progress is missing
+    _alive_it = None
+    _alive_bar = None
+
+
+def alive_it(iterable, *args, **kwargs):
+    """Fallback-compatible ``alive_it`` implementation."""
+    if _alive_it is not None:
+        return _alive_it(iterable, *args, **kwargs)
+
+    if isinstance(iterable, int):
+        if _alive_bar is not None:
+            return _alive_bar(iterable, *args, **kwargs)
+
+        @contextlib.contextmanager
+        def _dummy_bar():
+            def _noop(_=1):
+                pass
+
+            yield _noop
+
+        return _dummy_bar()
+
+    return iterable
+
+alive_bar = _alive_bar
 from typing import Callable, Iterable, Dict, List, Optional, Tuple
 from sklearn.ensemble import RandomForestClassifier, VotingClassifier
 from sklearn.model_selection import (
