@@ -1220,7 +1220,7 @@ def generate_balanced_elliott_dataset(
     all_data = pd.concat(dfs, ignore_index=True)
     if log:
         print(f"Fertiges Balancing: Gesamtanzahl: {len(all_data)}")
-        print("Label-Verteilung:\n", all_data["wave"].value_counts())
+        # print("Label-Verteilung:\n", all_data["wave"].value_counts())
     return all_data
 
 
