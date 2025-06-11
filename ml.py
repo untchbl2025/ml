@@ -968,7 +968,7 @@ def generate_balanced_elliott_dataset(
     n_share: float = N_SHARE,
     pattern_registry: PatternRegistry = pattern_registry,
     log: bool = True,
-    test_mode: bool = False,
+    test_mode: bool = True,
     test_label_limit: int = 100,
 ) -> pd.DataFrame:
     """Generate balanced dataset across all LABELS with optional invalid/N data.
