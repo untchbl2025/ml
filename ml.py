@@ -187,7 +187,7 @@ class LevelCalculator:
         )
         levels: List[Dict[str, object]] = []
         prev_info = None
-        for ts, g in tqdm(grouped, disable=not log, leave=True):
+        for ts, g in tqdm(grouped, disable=not log, leave=True, mininterval=1.0):
             if g.empty:
                 continue
             info = self._session_info(g)
