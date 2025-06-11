@@ -968,12 +968,41 @@ def generate_balanced_elliott_dataset(
     n_share: float = N_SHARE,
     pattern_registry: PatternRegistry = pattern_registry,
     log: bool = True,
+    test_mode: bool = False,
+    test_label_limit: int = 100,
 ) -> pd.DataFrame:
-    """Generate balanced dataset across all LABELS with optional invalid/N data."""
+    """Generate balanced dataset across all LABELS with optional invalid/N data.
 
-    n_n = int(n_total * n_share)
-    n_per_label = int((n_total * (1 - n_share)) // (len(LABELS) * (1 + invalid_share)))
-    n_invalid_per_label = int(n_per_label * invalid_share)
+    Parameters
+    ----------
+    n_total : int
+        Total sample count when ``test_mode`` is False.
+    invalid_share : float
+        Fraction of invalid samples per label.
+    n_share : float
+        Fraction of ``N`` samples when ``test_mode`` is False.
+    test_mode : bool, optional
+        If ``True``, create exactly ``test_label_limit`` samples per label and
+        for the ``N`` class, ignoring ``n_total``.
+    test_label_limit : int, optional
+        Number of samples per label when ``test_mode`` is enabled.
+
+    Returns
+    -------
+    pd.DataFrame
+        Generated dataset.
+    """
+
+    if test_mode:
+        n_per_label = test_label_limit
+        n_invalid_per_label = int(test_label_limit * invalid_share)
+        n_n = test_label_limit if "N" in LABEL_MAP else 0
+    else:
+        n_n = int(n_total * n_share)
+        n_per_label = int(
+            (n_total * (1 - n_share)) // (len(LABELS) * (1 + invalid_share))
+        )
+        n_invalid_per_label = int(n_per_label * invalid_share)
 
     dfs: List[pd.DataFrame] = []
 
@@ -1401,7 +1430,28 @@ def train_ml(
     max_samples=None,
     model_type="rf",
     feature_selection=False,
+    test_mode: bool = False,
+    test_label_limit: int = 100,
 ):
+    """Train machine learning model on generated Elliott wave data.
+
+    Parameters
+    ----------
+    skip_grid_search : bool, optional
+        If ``True`` skip hyper parameter search.
+    max_samples : int, optional
+        Limit of training samples after feature creation.
+    model_type : str, optional
+        One of ``rf``, ``xgb``, ``lgbm`` or ``voting``.
+    feature_selection : bool, optional
+        Enable RFECV feature selection.
+    test_mode : bool, optional
+        Generate a much smaller dataset using ``test_label_limit`` samples per
+        label. Useful for quick tests.
+    test_label_limit : int, optional
+        Number of samples per label when ``test_mode`` is active.
+    """
+
     if os.path.exists(DATASET_PATH):
         print(yellow("Lade vorhandenes Dataset..."))
         df = load_dataset(DATASET_PATH)
@@ -1416,6 +1466,8 @@ def train_ml(
             n_total=TRAIN_N,
             invalid_share=INVALID_SHARE,
             n_share=N_SHARE,
+            test_mode=test_mode,
+            test_label_limit=test_label_limit,
         )
         save_dataset(df, DATASET_PATH)
 
@@ -2366,6 +2418,17 @@ def main():
         action="store_true",
         help="RFECV Feature Auswahl nutzen",
     )
+    parser.add_argument(
+        "--test-mode",
+        action="store_true",
+        help="Kleineren Datensatz zum Testen verwenden",
+    )
+    parser.add_argument(
+        "--test-label-limit",
+        type=int,
+        default=100,
+        help="Anzahl Samples je Label im Test-Modus",
+    )
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
@@ -2400,6 +2463,8 @@ def main():
             max_samples=args.max_samples,
             model_type=args.model,
             feature_selection=args.feature_selection,
+            test_mode=args.test_mode,
+            test_label_limit=args.test_label_limit,
         )
     try:
         run_ml_on_bitget(
