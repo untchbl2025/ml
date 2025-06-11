@@ -21,6 +21,16 @@ import os
 import argparse
 import joblib
 
+# === Adjustable Parameters ===
+SYMBOL = "SPXUSDT"
+LIVEDATA_LEN = 50
+TRAIN_N = 2000
+PUFFER = 0.02
+
+MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
+DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
+CONFIDENCE_THRESHOLD = 0.3
+
 # === Pattern Registry ===
 
 
@@ -260,15 +270,6 @@ def get_all_levels(
 
 
 # === Parameter ===
-SYMBOL = "SPXUSDT"
-LIVEDATA_LEN = 50
-TRAIN_N = 2000
-PUFFER = 0.02
-
-MODEL_PATH = os.environ.get("MODEL_PATH", "elliott_model.joblib")
-DATASET_PATH = os.environ.get("DATASET_PATH", "elliott_dataset.joblib")
-CONFIDENCE_THRESHOLD = 0.3
-
 FEATURES_BASE = [
     "returns",
     "range",
@@ -515,17 +516,17 @@ def validate_impulse_elliott(df):
     w1_len = wave_len("1")
     w3_len = wave_len("3")
     w5_len = wave_len("5")
-    if w3_len < w1_len or w3_len < w5_len:
+    if w3_len < w1_len and w3_len < w5_len:
         df["wave"] = "INVALID_WAVE"
         return df
     w1_max = df[df["wave"] == "1"]["close"].max()
     w4_min = df[df["wave"] == "4"]["close"].min()
-    if w4_min < w1_max:
+    if w4_min < w1_max * 0.98:
         df["wave"] = "INVALID_WAVE"
         return df
     w1_start = df[df["wave"] == "1"]["close"].iloc[0]
     w2_min = df[df["wave"] == "2"]["close"].min()
-    if w2_min < w1_start * 1.01:
+    if w2_min < w1_start:
         df["wave"] = "INVALID_WAVE"
         return df
     w3_max = df[df["wave"] == "3"]["close"].max()
@@ -1338,6 +1339,11 @@ def train_ml(
         save_dataset(df, DATASET_PATH)
 
     print(f"{blue('Gesamtanzahl Datenpunkte:')} {len(df)}")
+
+    counts = df['wave'].value_counts().reset_index()
+    counts.columns = ['wave', 'count']
+    print(bold("Wave/Pattern Verteilung:"))
+    print(tabulate(counts.values, headers=['Wave', 'Count']))
     df.index = pd.date_range("2020-01-01", periods=len(df), freq="1h")
     levels = get_all_levels(df, ["2H", "4H", "1D", "1W"])
     df = make_features(df, levels=levels)
