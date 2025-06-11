@@ -1,6 +1,8 @@
 # Machine Learning Wave Analysis
 
-This repository contains the `ml.py` module along with unit tests.
+This repository contains the `ml` package along with unit tests.  The
+package exposes utilities for data generation, feature engineering, model
+training and prediction.
 
 ## Installation
 
@@ -27,7 +29,7 @@ pytest -q
 
 ## Project Overview
 
-- **ml.py** implements utilities to generate synthetic price patterns, compute
+- **ml** implements utilities to generate synthetic price patterns, compute
   indicators such as Fibonacci levels and pivots, and train machine-learning
   models for market analysis. It exposes helper functions like
   `_latest_segment_indices`, `elliott_target`, and
