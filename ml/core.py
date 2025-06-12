@@ -91,6 +91,10 @@ class PatternRegistry:
                 self._next_wave[name] = list(next_wave)
         return generator
 
+    def has_pattern(self, name: str) -> bool:
+        """Return ``True`` if a pattern ``name`` is registered."""
+        return name in self._patterns
+
     def generators(self) -> List[Tuple[Callable[..., object], str]]:
         """Return list of registered generators as ``(func, name)`` tuples."""
         return [(func, name) for name, func in self._patterns.items()]
@@ -1301,7 +1305,7 @@ def generate_balanced_elliott_dataset(
     with alive_it(total_iterations, disable=not log) as bar:
         for label in LABELS:
             for _ in range(n_per_label):
-                if label in pattern_registry._patterns:
+                if pattern_registry.has_pattern(label):
                     gen = pattern_registry._patterns[label]
                     length = np.random.randint(30, 60)
                     amp = np.random.uniform(80, 150)
@@ -1319,7 +1323,7 @@ def generate_balanced_elliott_dataset(
                 dfs.append(df)
                 bar()
             for _ in range(n_invalid_per_label):
-                if label in pattern_registry._patterns:
+                if pattern_registry.has_pattern(label):
                     gen = pattern_registry._patterns[label]
                     length = np.random.randint(30, 60)
                     amp = np.random.uniform(80, 150)
