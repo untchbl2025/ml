@@ -113,6 +113,17 @@ def register_pattern(name: str, next_wave: Optional[Iterable[str]] = None):
     return decorator
 
 
+def _apply_ohlc_noise(df: pd.DataFrame, noise_level: float) -> pd.DataFrame:
+    """Apply gaussian noise to OHLC columns of ``df``."""
+    if noise_level and noise_level > 0:
+        cols = ["open", "high", "low", "close"]
+        noise = np.random.normal(0, noise_level, size=(len(df), len(cols)))
+        df[cols] = df[cols].to_numpy() + noise
+        df["high"] = df[["open", "close", "high"]].max(axis=1)
+        df["low"] = df[["open", "close", "low"]].min(axis=1)
+    return df
+
+
 # === Fibonacci Levels ===
 
 
@@ -683,7 +694,9 @@ def subwaves(length, amp, noise, pattern):
         return amp + np.cumsum(np.random.normal(amp / length, noise, length))
 
 
-def synthetic_elliott_wave_rulebased(lengths, amp, noise, puffer=PUFFER):
+def synthetic_elliott_wave_rulebased(
+    lengths, amp, noise, puffer=PUFFER, *, noise_level: float = 0.0
+):
     pattern = ["1", "2", "3", "4", "5", "A", "B", "C"]
     prices, labels = [], []
     price = amp
@@ -725,11 +738,12 @@ def synthetic_elliott_wave_rulebased(lengths, amp, noise, puffer=PUFFER):
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
     df = validate_impulse_elliott(df)
-    return df.reset_index(drop=True)
+    df = _apply_ohlc_noise(df.reset_index(drop=True), noise_level)
+    return df
 
 
 @register_pattern("TRIANGLE", next_wave=["5", "C"])
-def synthetic_triangle_pattern(length=40, amp=100, noise=3):
+def synthetic_triangle_pattern(length=40, amp=100, noise=3, *, noise_level: float = 0.0):
     base = amp
     step = amp * 0.04
     a = base + np.cumsum(np.random.normal(step, noise, length // 5))
@@ -755,11 +769,12 @@ def synthetic_triangle_pattern(length=40, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("ZIGZAG", next_wave=["B", "3"])
-def synthetic_zigzag_pattern(length=30, amp=100, noise=3):
+def synthetic_zigzag_pattern(length=30, amp=100, noise=3, *, noise_level: float = 0.0):
     len1 = length // 2
     len2 = length // 4
     len3 = length - len1 - len2
@@ -778,11 +793,12 @@ def synthetic_zigzag_pattern(length=30, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("FLAT", next_wave=["3", "5", "C"])
-def synthetic_flat_pattern(length=30, amp=100, noise=3):
+def synthetic_flat_pattern(length=30, amp=100, noise=3, *, noise_level: float = 0.0):
     len1 = length // 3
     len2 = length // 3
     len3 = length - len1 - len2
@@ -801,11 +817,12 @@ def synthetic_flat_pattern(length=30, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("DOUBLE_ZIGZAG", next_wave=["C", "5"])
-def synthetic_double_zigzag_pattern(length=50, amp=100, noise=3):
+def synthetic_double_zigzag_pattern(length=50, amp=100, noise=3, *, noise_level: float = 0.0):
     zz1 = synthetic_zigzag_pattern(length // 2, amp, noise)["close"]
     zz2 = synthetic_zigzag_pattern(length // 2, amp * 0.9, noise)["close"]
     prices = np.concatenate([zz1, zz2])
@@ -819,11 +836,12 @@ def synthetic_double_zigzag_pattern(length=50, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("RUNNING_FLAT")
-def synthetic_running_flat_pattern(length=30, amp=100, noise=3):
+def synthetic_running_flat_pattern(length=30, amp=100, noise=3, *, noise_level: float = 0.0):
     a = amp + np.cumsum(np.random.normal(amp / length, noise, length // 3))
     b = a[-1] + np.cumsum(np.random.normal(amp / length, noise, length // 3))
     c = b[-1] + np.cumsum(
@@ -840,11 +858,12 @@ def synthetic_running_flat_pattern(length=30, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("EXPANDED_FLAT", next_wave=["3", "5", "C"])
-def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
+def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3, *, noise_level: float = 0.0):
     a = amp + np.cumsum(np.random.normal(amp / length, noise, length // 3))
     b = a[-1] + np.cumsum(
         np.random.normal(amp / length * 2, noise, length // 3)
@@ -863,12 +882,13 @@ def synthetic_expanded_flat_pattern(length=30, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("TREND_REVERSAL")
 def synthetic_trend_reversal_pattern(
-    length=40, amp=100, noise=3, gap_chance=0.1
+    length=40, amp=100, noise=3, gap_chance=0.1, *, noise_level: float = 0.0
 ):
     up_len = length // 2
     down_len = length - up_len
@@ -891,12 +911,13 @@ def synthetic_trend_reversal_pattern(
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("FALSE_BREAKOUT")
 def synthetic_false_breakout_pattern(
-    length=40, amp=100, noise=3, gap_chance=0.1
+    length=40, amp=100, noise=3, gap_chance=0.1, *, noise_level: float = 0.0
 ):
     base_len = length // 3
     breakout_len = length // 4
@@ -924,11 +945,12 @@ def synthetic_false_breakout_pattern(
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("GAP_EXTENSION")
-def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
+def synthetic_gap_extension_pattern(length=40, amp=100, noise=3, *, noise_level: float = 0.0):
     l1 = length // 3
     l2 = length // 3
     l3 = length - l1 - l2
@@ -950,11 +972,12 @@ def synthetic_gap_extension_pattern(length=40, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("WXY", next_wave=["Z", "Abschluss"])
-def synthetic_wxy_pattern(length=60, amp=100, noise=3):
+def synthetic_wxy_pattern(length=60, amp=100, noise=3, *, noise_level: float = 0.0):
     lw = length // 3
     lx = length // 6
     ly = length - lw - lx
@@ -972,11 +995,12 @@ def synthetic_wxy_pattern(length=60, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("WXYXZ", next_wave=["Abschluss"])
-def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
+def synthetic_wxyxz_pattern(length=80, amp=100, noise=3, *, noise_level: float = 0.0):
     seg = length // 5
     w = amp + np.cumsum(np.random.normal(amp / seg * 2, noise, seg * 2))
     x1 = w[-1] - np.cumsum(np.abs(np.random.normal(amp / seg, noise, seg)))
@@ -1006,11 +1030,12 @@ def synthetic_wxyxz_pattern(length=80, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("WXYXZY")
-def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
+def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3, *, noise_level: float = 0.0):
     seg = length // 6
     w = amp + np.cumsum(np.random.normal(amp / seg, noise, seg))
     x1 = w[-1] - np.cumsum(np.abs(np.random.normal(amp / seg, noise, seg)))
@@ -1038,11 +1063,12 @@ def synthetic_wxyxzy_pattern(length=100, amp=100, noise=3):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("LEADING_DIAGONAL", next_wave=["3"])
-def synthetic_leading_diagonal_pattern(length=40, amp=100, noise=3):
+def synthetic_leading_diagonal_pattern(length=40, amp=100, noise=3, *, noise_level: float = 0.0):
     seg = length // 5
     step = amp * 0.04
     w1 = amp + np.cumsum(
@@ -1071,11 +1097,12 @@ def synthetic_leading_diagonal_pattern(length=40, amp=100, noise=3):
         np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("ENDING_DIAGONAL", next_wave=["A"])
-def synthetic_ending_diagonal_pattern(length=40, amp=100, noise=3):
+def synthetic_ending_diagonal_pattern(length=40, amp=100, noise=3, *, noise_level: float = 0.0):
     seg = length // 5
     step = amp * 0.05
     w1 = amp + np.cumsum(np.random.normal(step * 1.3, noise, seg))
@@ -1096,11 +1123,12 @@ def synthetic_ending_diagonal_pattern(length=40, amp=100, noise=3):
         np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("RUNNING_TRIANGLE", next_wave=["5", "C"])
-def synthetic_running_triangle_pattern(length=40, amp=100, noise=3):
+def synthetic_running_triangle_pattern(length=40, amp=100, noise=3, *, noise_level: float = 0.0):
     seg = length // 5
     step = amp * 0.04
     a = amp + np.cumsum(np.random.normal(step, noise, seg))
@@ -1121,11 +1149,12 @@ def synthetic_running_triangle_pattern(length=40, amp=100, noise=3):
         np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("CONTRACTING_TRIANGLE", next_wave=["5", "C"])
-def synthetic_contracting_triangle_pattern(length=40, amp=100, noise=3):
+def synthetic_contracting_triangle_pattern(length=40, amp=100, noise=3, *, noise_level: float = 0.0):
     seg = length // 5
     step = amp * 0.05
     a = amp + np.cumsum(np.random.normal(step, noise, seg))
@@ -1146,11 +1175,12 @@ def synthetic_contracting_triangle_pattern(length=40, amp=100, noise=3):
         np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 @register_pattern("FLAT_ZIGZAG", next_wave=["C", "5"])
-def synthetic_flat_zigzag_series_pattern(length=60, amp=100, noise=3):
+def synthetic_flat_zigzag_series_pattern(length=60, amp=100, noise=3, *, noise_level: float = 0.0):
     half = length // 2
     flat = synthetic_flat_pattern(half, amp, noise)["close"]
     zz = synthetic_zigzag_pattern(length - half, flat.iloc[-1], noise)["close"]
@@ -1165,11 +1195,18 @@ def synthetic_flat_zigzag_series_pattern(length=60, amp=100, noise=3):
         np.minimum(df["open"], df["close"]) - np.random.uniform(0, 1, len(df))
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
 def generate_negative_samples(
-    length=100, amp=100, noise=20, outlier_chance=0.1, gap_chance=0.1
+    length=100,
+    amp=100,
+    noise=20,
+    outlier_chance=0.1,
+    gap_chance=0.1,
+    *,
+    noise_level: float = 0.0,
 ):
     prices = amp + np.cumsum(np.random.normal(0, noise, length))
     for i in range(1, length):
@@ -1189,10 +1226,11 @@ def generate_negative_samples(
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
-def _simple_wave_segment(label, start_price, length=8, noise=2):
+def _simple_wave_segment(label, start_price, length=8, noise=2, *, noise_level: float = 0.0):
     """Create a short price segment for a single wave label."""
     direction = 1 if np.random.rand() < 0.5 else -1
     step = max(start_price * 0.02, 1)
@@ -1208,6 +1246,7 @@ def _simple_wave_segment(label, start_price, length=8, noise=2):
         0, 1, len(df)
     )
     df["volume"] = np.random.uniform(100, 1000, len(df))
+    df = _apply_ohlc_noise(df, noise_level)
     return df
 
 
@@ -1219,6 +1258,8 @@ def generate_balanced_elliott_dataset(
     log: bool = True,
     test_mode: bool = False,
     test_label_limit: int = 100,
+    *,
+    noise_level: float = 0.0,
 ) -> pd.DataFrame:
     """Generate balanced dataset across all LABELS.
 
@@ -1265,13 +1306,14 @@ def generate_balanced_elliott_dataset(
                     length = np.random.randint(30, 60)
                     amp = np.random.uniform(80, 150)
                     noise = np.random.uniform(1, 3.5)
-                    df = gen(length=length, amp=amp, noise=noise)
+                    df = gen(length=length, amp=amp, noise=noise, noise_level=noise_level)
                     df["wave"] = label
                 else:
                     df = synthetic_elliott_wave_rulebased(
                         lengths=np.random.randint(15, 40, size=8),
                         amp=np.random.uniform(80, 150),
                         noise=np.random.uniform(1, 3.0),
+                        noise_level=noise_level,
                     )
                     df["wave"] = label
                 dfs.append(df)
@@ -1282,7 +1324,7 @@ def generate_balanced_elliott_dataset(
                     length = np.random.randint(30, 60)
                     amp = np.random.uniform(80, 150)
                     noise = np.random.uniform(4, 8)
-                    df = gen(length=length, amp=amp, noise=noise)
+                    df = gen(length=length, amp=amp, noise=noise, noise_level=noise_level)
                     df = df.sample(frac=1).reset_index(drop=True)
                     df["wave"] = "INVALID_WAVE"
                 else:
@@ -1290,6 +1332,7 @@ def generate_balanced_elliott_dataset(
                         lengths=np.random.randint(15, 40, size=8),
                         amp=np.random.uniform(80, 150),
                         noise=np.random.uniform(5, 10),
+                        noise_level=noise_level,
                     )
                     df = df.sample(frac=1).reset_index(drop=True)
                     df["wave"] = "INVALID_WAVE"
@@ -1306,6 +1349,7 @@ def generate_balanced_elliott_dataset(
                 noise=noise,
                 outlier_chance=0.2,
                 gap_chance=0.25,
+                noise_level=noise_level,
             )
             df["wave"] = "N"
             dfs.append(df)
@@ -1702,6 +1746,7 @@ def train_ml(
     test_mode: bool = False,
     test_label_limit: int = 100,
     *,
+    noise_level: float = 0.0,
     log: bool = True,
 ):
     """Train machine learning model on generated Elliott wave data.
@@ -1739,6 +1784,7 @@ def train_ml(
             n_share=N_SHARE,
             test_mode=test_mode,
             test_label_limit=test_label_limit,
+            noise_level=noise_level,
         )
         save_dataset(df, DATASET_PATH)
 
@@ -2958,6 +3004,12 @@ def main():
         help="Anzahl Samples je Label im Test-Modus",
     )
     parser.add_argument(
+        "--noise-level",
+        type=float,
+        default=0.0,
+        help="Standardabweichung des zusätzlichen OHLC Rauschens",
+    )
+    parser.add_argument(
         "--smooth-window",
         type=int,
         default=5,
@@ -3001,6 +3053,7 @@ def main():
             feature_selection=args.feature_selection,
             test_mode=args.test_mode,
             test_label_limit=args.test_label_limit,
+            noise_level=args.noise_level,
             log=True,
         )
     try:
