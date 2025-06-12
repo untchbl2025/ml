@@ -2440,9 +2440,9 @@ def run_pattern_analysis(
 
 
 # === Prediction Smoothing ===
-def smooth_predictions(pred, window=5):
+def smooth_predictions(pred, smooth_window=5):
     """Return smoothed labels using majority voting."""
-    half = window // 2
+    half = smooth_window // 2
     smoothed = []
     for i in range(len(pred)):
         start = max(0, i - half)
@@ -2463,6 +2463,7 @@ def run_ml_on_bitget(
     interval="1H",
     livedata_len=LIVEDATA_LEN,
     extra_intervals=None,
+    smooth_window=5,
     *,
     log: bool = True,
 ):
@@ -2565,7 +2566,7 @@ def run_ml_on_bitget(
             print(red("Warnung: Starke Abweichungen bei " + ", ".join(alerts)))
 
     pred_raw = model.predict(df_features[features])
-    pred = smooth_predictions(pred_raw)
+    pred = smooth_predictions(pred_raw, smooth_window=smooth_window)
     pred_proba = model.predict_proba(df_features[features])
     classes = [str(c) for c in model.classes_]
     df_features["wave_pred_raw"] = pred_raw
@@ -2956,6 +2957,12 @@ def main():
         default=100,
         help="Anzahl Samples je Label im Test-Modus",
     )
+    parser.add_argument(
+        "--smooth-window",
+        type=int,
+        default=5,
+        help="Fenstergröße für das Glätten der Vorhersagen",
+    )
     args = parser.parse_args()
 
     MODEL_PATH = args.model_path
@@ -3006,6 +3013,7 @@ def main():
             interval="1H",
             livedata_len=LIVEDATA_LEN,
             extra_intervals=["2H", "4H", "1D", "1W"],
+            smooth_window=args.smooth_window,
             log=True,
         )
     except ValueError as e:
