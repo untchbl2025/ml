@@ -20,6 +20,7 @@ from sklearn.model_selection import (
     TimeSeriesSplit,
     cross_val_score,
 )
+from sklearn.utils import resample
 from tabulate import tabulate
 from xgboost import XGBClassifier
 import joblib
@@ -1264,6 +1265,7 @@ def generate_balanced_elliott_dataset(
     test_label_limit: int = 100,
     *,
     noise_level: float = 0.0,
+    balance: bool = True,
 ) -> pd.DataFrame:
     """Generate balanced dataset across all LABELS.
 
@@ -1282,6 +1284,9 @@ def generate_balanced_elliott_dataset(
         for the ``N`` class, ignoring ``n_total``.
     test_label_limit : int, optional
         Number of samples per label when ``test_mode`` is enabled.
+    balance : bool, optional
+        When ``True``, resample rows per label so each class has the same
+        number of rows after generation.
 
     Returns
     -------
@@ -1360,6 +1365,26 @@ def generate_balanced_elliott_dataset(
             bar()
 
     all_data = pd.concat(dfs, ignore_index=True)
+    if balance:
+        counts = all_data["wave"].value_counts()
+        target_count = counts.max()
+        if log:
+            print("Label-Verteilung vor Balancing:", counts.to_dict())
+            print(f"Balancing auf {target_count} Zeilen pro Label")
+
+        resampled: List[pd.DataFrame] = []
+        for label, count in counts.items():
+            subset = all_data[all_data["wave"] == label]
+            replace = count < target_count
+            subset_bal = resample(
+                subset,
+                replace=replace,
+                n_samples=target_count,
+                random_state=0,
+            )
+            resampled.append(subset_bal)
+        all_data = pd.concat(resampled, ignore_index=True)
+
     if log:
         print(f"Fertiges Balancing: Gesamtanzahl: {len(all_data)}")
         # print("Label-Verteilung:\n", all_data["wave"].value_counts())
