@@ -38,3 +38,12 @@ pytest -q
   includes a small path fix to import the project modules directly from the
   repository root.
 
+## Command Line Usage
+
+The `ml.core` module can be executed as a script. Use `--smooth-window` to
+control how many predictions are considered when smoothing:
+
+```bash
+python -m ml.core --smooth-window 7
+```
+
